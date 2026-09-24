@@ -135,11 +135,11 @@ A new live event `conditions` pushes changes to every open dashboard.
 
 ---
 
-# Part 2: endpoint catalog, repeat, breakpoints
+# Part 2: endpoint catalogue, repeat, breakpoints
 
 Status: implemented on `feature/network-fault-injection`.
 
-## R6. Endpoint catalog (top-level API endpoint selector)
+## R6. Endpoint catalogue (top-level API endpoint selector)
 
 Testers should pick "which API" from a list (`/page/fetch`, `/action/view`,
 `/data/sync`, and so on) instead of typing URL patterns. The list should be versioned
@@ -159,7 +159,7 @@ in GitHub so every build and every tester shares it.
 3. **Dashboard:** testers add or edit endpoints. These are stored on the device and flagged as *not in repo yet*.
 
 **Back into GitHub:**
-- The dashboard's Export button, or `GET /api/endpoints/export`, produces the complete catalog file.
+- The dashboard's Export button, or `GET /api/endpoints/export`, produces the complete catalogue file.
 - `scripts/pull-endpoints.sh <path-in-app-repo>` pulls it from a device over `adb forward` and writes it into the app repo, ready to commit and open a PR.
 - The device never holds GitHub credentials, since debug builds carry payment data.
 
@@ -203,7 +203,7 @@ Paused calls appear in a tray on every dashboard screen, with the call's details
 | S20 | Send a request with a missing auth header | Request breakpoint, then remove the header, then Continue |
 
 ## Verification
-- `killcam-core` unit and server tests: conditions, presets, failure plans, `times` and `probability`, the endpoint catalog, breakpoints and every new HTTP endpoint.
+- `killcam-core` unit and server tests: conditions, presets, failure plans, `times` and `probability`, the endpoint catalogue, breakpoints and every new HTTP endpoint.
 - `killcam` unit tests for the OkHttp fault helpers, plus end-to-end interceptor tests against MockWebServer (throttling, drops, repeat, breakpoints).
 - `scripts/check-noop-api.sh` keeps `killcam-no-op` in step with the new public API.
 - Dashboard `npm run typecheck` / `npm run build`, and the Node mock server updated so the UI can be exercised without a device.

@@ -81,7 +81,7 @@ than the last 300, or for a one-shot body when no edited body is given.
 Rules are evaluated in list order; the first enabled match wins. A rule with
 `times > 0` stops matching after that many hits, and a rule with `probability < 100`
 applies to only that share of matching calls. Either way, a skipped call falls
-through to later rules, then to the real network. With `endpoint` set to a catalog key,
+through to later rules, then to the real network. With `endpoint` set to a catalogue key,
 the device fills `method` (unless given), `urlPattern` and `matchType` from that endpoint.
 
 `action: "fail"` takes a `failure`. Each one throws the exception Android throws, with the same wording:
@@ -122,21 +122,21 @@ The setting survives app restarts. Every change is added to the replay timeline
 (`Network: Slow 3G`) and pushed as the `conditions` live event. Traffic that bypasses
 OkHttp (WebViews, other HTTP stacks, raw sockets) is not affected.
 
-### Endpoint catalog
+### Endpoint catalogue
 | Method | Path | Body | Returns |
 |---|---|---|---|
 | GET | `/api/endpoints` | | `Endpoint[]`, grouped then sorted by key |
 | PUT or POST | `/api/endpoints` | `EndpointInput` | `Endpoint` (added or replaced on this device) |
 | DELETE | `/api/endpoints?key=` | | `204`; only endpoints added from the dashboard |
-| GET | `/api/endpoints/export[?download=1]` | | The merged catalog as a pretty `killcam-endpoints.json` |
+| GET | `/api/endpoints/export[?download=1]` | | The merged catalogue as a pretty `killcam-endpoints.json` |
 
-The catalog merges three layers by key, later winning:
+The catalogue merges three layers by key, later winning:
 
 1. `killcam-endpoints.json` shipped as a debug asset (`KillcamConfig.endpointsAsset`).
 2. `Killcam.registerEndpoint` in code.
 3. Endpoints added from the dashboard, which are stored on the device.
 
-`unexported: true` marks endpoints that differ from the repo file. Export the catalog,
+`unexported: true` marks endpoints that differ from the repo file. Export the catalogue,
 or run `scripts/pull-endpoints.sh <path>`, and commit the file to share them. The file
 format is `{ "version": 1, "endpoints": [EndpointInput, …] }`. `urlPattern` defaults to
 the key (matched as "contains"), and `group` defaults to the key's first path segment.
@@ -167,7 +167,7 @@ curl "${H[@]}" -X PUT  $K/network-conditions -d '{"profile":"slow_3g"}'
 curl "${H[@]}" -X PUT  $K/network-conditions -d '{"latencyMs":800,"downloadKbps":64,"lossPercent":10}'
 curl "${H[@]}" -X DELETE $K/network-conditions
 
-# Pay fails DNS once; the app's retry reaches the server (targets a catalog endpoint by key)
+# Pay fails DNS once; the app's retry reaches the server (targets a catalogue endpoint by key)
 curl "${H[@]}" -X POST $K/mocks -d '{"name":"","urlPattern":"","endpoint":"/v1/upi/pay","action":"fail","failure":"dns_failure","times":1}'
 
 # Transaction list download drops after 2 KB
