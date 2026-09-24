@@ -13,8 +13,11 @@ import type {
   KillcamStatus,
   LiveEvents,
   LogEntry,
+  Endpoint,
   MockRule,
+  NetworkConditions,
   NetworkSummary,
+  PausedCall,
   SessionSummary,
   TimelineEvent,
 } from './types';
@@ -38,6 +41,11 @@ export interface LiveState {
   /** /api/crashes: this session plus crashes saved from earlier ones, newest first. */
   crashes: CrashSummary[];
   mocks: MockRule[] | null;
+  /** null until loaded, or when the device predates network conditions. */
+  conditions: NetworkConditions | null;
+  endpoints: Endpoint[] | null;
+  /** Calls held at breakpoints, oldest first. */
+  paused: PausedCall[];
   flags: Flag[] | null;
 }
 
@@ -53,6 +61,9 @@ export const liveStore = createStore<LiveState>({
   timeline: [],
   crashes: [],
   mocks: null,
+  conditions: null,
+  endpoints: null,
+  paused: [],
   flags: null,
 });
 
@@ -66,7 +77,7 @@ let buffering = false;
 let queue: LiveEvent[] = [];
 let generation = 0;
 
-const STREAMS = ['network', 'log', 'crash', 'timeline', 'mocks', 'flags', 'status', 'cleared'] as const;
+const STREAMS = ['network', 'log', 'crash', 'timeline', 'mocks', 'conditions', 'endpoints', 'breakpoints', 'flags', 'status', 'cleared'] as const;
 
 export function connectLive(): void {
   clearTimeout(retryTimer);
@@ -125,7 +136,7 @@ async function onHello(hello: LiveEvents['hello'], gen: number): Promise<void> {
   }
   liveStore.set({ conn: 'open', sessionId: hello.sessionId });
   try {
-    const [info, status, sessions, network, logs, timeline, crashes, mocks, flags] = await Promise.all([
+    const [info, status, sessions, network, logs, timeline, crashes, mocks, flags, conditions, endpoints, paused] = await Promise.all([
       api.get<AppInfo>('info'),
       api.get<KillcamStatus>('status'),
       api.get<SessionSummary[]>('sessions'),
@@ -135,6 +146,10 @@ async function onHello(hello: LiveEvents['hello'], gen: number): Promise<void> {
       api.get<CrashSummary[]>('crashes'),
       api.get<MockRule[]>('mocks'),
       api.get<Flag[]>('flags'),
+      // Older devices lack these endpoints; the panels then show their empty states.
+      api.get<NetworkConditions>('network-conditions').catch(() => null),
+      api.get<Endpoint[]>('endpoints').catch(() => null),
+      api.get<PausedCall[]>('breakpoints').catch(() => [] as PausedCall[]),
     ]);
     if (gen !== generation) return;
     liveStore.set({
@@ -147,6 +162,9 @@ async function onHello(hello: LiveEvents['hello'], gen: number): Promise<void> {
       crashes,
       mocks,
       flags,
+      conditions,
+      endpoints,
+      paused,
       loaded: true,
     });
   } catch (e) {
@@ -185,7 +203,7 @@ function flush(): void {
   const batch = queue;
   queue = [];
   const s = liveStore.get();
-  let { network, logs, timeline, crashes, mocks, flags, status } = s;
+  let { network, logs, timeline, crashes, mocks, flags, status, conditions, endpoints, paused } = s;
   let netCopied = false;
   let logsCopied = false;
   let tlCopied = false;
@@ -235,6 +253,15 @@ function flush(): void {
       case 'mocks':
         mocks = data;
         break;
+      case 'conditions':
+        conditions = data;
+        break;
+      case 'endpoints':
+        endpoints = data;
+        break;
+      case 'breakpoints':
+        paused = data;
+        break;
       case 'flags':
         flags = data;
         break;
@@ -255,7 +282,7 @@ function flush(): void {
   if (logs.length > CAP.logs) logs = logs.slice(-CAP.logs);
   if (tlUnordered) timeline.sort(byTsSeq);
   if (timeline.length > CAP.timeline) timeline = timeline.slice(-CAP.timeline);
-  liveStore.set({ network, logs, timeline, crashes, mocks, flags, status });
+  liveStore.set({ network, logs, timeline, crashes, mocks, flags, status, conditions, endpoints, paused });
   if (refreshSessions) void reloadSessions();
 }
 
@@ -271,6 +298,14 @@ export async function reloadSessions(): Promise<void> {
 
 export async function reloadMocks(): Promise<void> {
   liveStore.set({ mocks: await api.get<MockRule[]>('mocks') });
+}
+
+export async function reloadConditions(): Promise<void> {
+  liveStore.set({ conditions: await api.get<NetworkConditions>('network-conditions') });
+}
+
+export async function reloadEndpoints(): Promise<void> {
+  liveStore.set({ endpoints: await api.get<Endpoint[]>('endpoints') });
 }
 
 export async function reloadFlags(): Promise<void> {

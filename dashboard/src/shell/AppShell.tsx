@@ -10,6 +10,8 @@ import { useRoute, type Panel } from '../state/router';
 import { useStore } from '../state/store';
 import { BottomTabs, EmbedStrips, EmbedTopBar } from './Embed';
 import { ConnectionBanner, PageHeader } from './PageHeader';
+import { BreakpointTray } from '../panels/BreakpointTray';
+import { ConditionsBanner } from '../panels/NetworkConditions';
 import { PinScreen } from './PinScreen';
 import { screenOf } from './routes';
 import { SessionDetailsDialog } from './SessionDetails';
@@ -26,6 +28,7 @@ const PAGES: Record<Panel, ComponentType> = {
   logs: page(() => import('../panels/LogsPanel'), 'LogsPanel'),
   crashes: page(() => import('../panels/CrashesPanel'), 'CrashesPanel'),
   mocks: page(() => import('../panels/MocksPanel'), 'MocksPanel'),
+  endpoints: page(() => import('../panels/EndpointsPanel'), 'EndpointsPanel'),
   flags: page(() => import('../panels/FlagsPanel'), 'FlagsPanel'),
   'remote-config': page(() => import('../panels/RemoteConfigPanel'), 'RemoteConfigPanel'),
   actions: page(() => import('../panels/ActionsPanel'), 'ActionsPanel'),
@@ -89,6 +92,8 @@ export function AppShell() {
           <div className={FILL.includes(route.panel) ? `${s.page} ${s.fill}` : s.page}>
             {!embed && <PageHeader screen={screen} />}
             {!embed && <ConnectionBanner />}
+            <BreakpointTray />
+            <ConditionsBanner />
             <Suspense fallback={<Spinner />}>
               <Page />
             </Suspense>
