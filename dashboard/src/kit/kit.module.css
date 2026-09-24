@@ -1,0 +1,96 @@
+/* Killcam's extensions to the design system: built from its tokens only. */
+
+/* A 40px icon button: the phone tap target. */
+.tap {
+  width: 40px !important;
+  height: 40px !important;
+}
+
+/* Text entry in the design system's field look (SearchInput's box). */
+.input {
+  height: 36px;
+  width: 100%;
+  min-width: 0;
+  padding: 0 12px;
+  background: var(--bg);
+  border: 1px solid var(--line2);
+  border-radius: var(--radius);
+  color: var(--tx);
+  font: 400 13px var(--font-ui);
+  outline: none;
+}
+.input::placeholder {
+  color: var(--tx3);
+}
+.input:focus {
+  border-color: var(--focus);
+}
+.input:focus-visible {
+  outline: none;
+}
+.invalid,
+.invalid:focus {
+  border-color: var(--fail);
+}
+.mono {
+  font: 400 12.5px var(--font-mono);
+}
+.textarea {
+  height: auto;
+  min-height: 72px;
+  padding: 10px 12px;
+  line-height: 1.55;
+  resize: vertical;
+}
+.select {
+  padding: 0 8px;
+  cursor: pointer;
+}
+.select option {
+  background: var(--s1);
+  color: var(--tx);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.grow {
+  flex: 1 1 200px;
+}
+.fieldLabel {
+  font: 600 10.5px var(--font-ui);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tx3);
+}
+.fieldHint {
+  font: 400 12px/1.5 var(--font-ui);
+  color: var(--tx3);
+}
+
+.pending {
+  display: inline-flex;
+  animation: global(sp-pulse) 1.2s ease-in-out infinite;
+}
+
+.method {
+  font: 700 11px var(--font-mono);
+  letter-spacing: 0.02em;
+  color: var(--tx2);
+  white-space: nowrap;
+}
+.get {
+  color: var(--c1);
+}
+.post {
+  color: var(--c3);
+}
+.put {
+  color: var(--c4);
+}
+.del {
+  color: var(--c2);
+}

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="killcam_bg">#0F1012</color>
+    <color name="killcam_surface">#17181B</color>
+    <color name="killcam_border">#2A2C31</color>
+    <color name="killcam_text">#E8E8EA</color>
+    <color name="killcam_muted">#8D9099</color>
+    <color name="killcam_accent">#F2A900</color>
+    <color name="killcam_rec">#FF3B3B</color>
+
+    <style name="killcam_theme" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/killcam_bg</item>
+        <item name="android:colorAccent">@color/killcam_accent</item>
+        <item name="android:textColorPrimary">@color/killcam_text</item>
+    </style>
+</resources>

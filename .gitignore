@@ -1,0 +1,12 @@
+.gradle/
+.kotlin/
+build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+captures/
+dashboard/node_modules/
+dashboard/dist/
+rozenite-plugin/node_modules/
+rozenite-plugin/dist/

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <!-- Own task affinity so the inspector shows up as "Killcam" in recents and
+             never reorders the app's own back stack. -->
+        <activity
+            android:name="com.krafton.killcam.internal.ui.KillcamActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode"
+            android:exported="false"
+            android:label="Killcam"
+            android:launchMode="singleTask"
+            android:taskAffinity="${applicationId}.killcam"
+            android:theme="@style/killcam_theme"
+            android:windowSoftInputMode="adjustResize" />
+
+        <receiver
+            android:name="com.krafton.killcam.internal.KillcamReceiver"
+            android:exported="false" />
+
+        <provider
+            android:name="com.krafton.killcam.internal.KillcamFileProvider"
+            android:authorities="${applicationId}.killcam.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/killcam_file_paths" />
+        </provider>
+    </application>
+</manifest>

@@ -1,0 +1,5 @@
+# Written by scripts/sync-design-system.sh. dashboard/src/design is vendored: do not edit it.
+source: perfetto-monitor/frontend/src/design
+commit: d007f5a44374886c7a1815cecd552b1342c7314e
+synced: 2026-09-24T09:44:49Z
+files: 104

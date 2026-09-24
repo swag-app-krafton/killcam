@@ -1,0 +1,18 @@
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+  outline: none;
+  overscroll-behavior: contain;
+}
+.spacer {
+  position: relative;
+  width: 100%;
+}
+.row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+}

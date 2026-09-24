@@ -1,0 +1,43 @@
+{
+  "name": "@swag/rozenite-killcam-plugin",
+  "version": "0.1.0",
+  "description": "Killcam inside React Native DevTools: network, logs, crashes, replay, flags, storage, MMKV and Remote Config for the whole app, native screens included.",
+  "type": "module",
+  "main": "./dist/react-native/cjs/react-native.js",
+  "module": "./dist/react-native/react-native.js",
+  "types": "./dist/react-native/react-native.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/react-native/react-native.d.ts",
+      "import": "./dist/react-native/react-native.js",
+      "require": "./dist/react-native/cjs/react-native.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rozenite build",
+    "dev": "rozenite dev",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@rozenite/plugin-bridge": "2.4.0"
+  },
+  "devDependencies": {
+    "@rozenite/vite-plugin": "2.4.0",
+    "@types/react": "~19.2.3",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.0",
+    "react-native-web": "^0.21.2",
+    "rozenite": "2.4.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.1"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  }
+}

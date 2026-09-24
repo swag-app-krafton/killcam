@@ -1,0 +1,186 @@
+/* The console surface (logs, code, bodies, stacks): dark in both themes, like
+   the design system's LogConsole and CodeBlock. Syntax colours are therefore
+   fixed too; they are tuned for --con-bg. */
+.root {
+  --kc-json-key: #7cb4ff;
+  --kc-json-str: #8fdcae;
+  --kc-json-num: #ffb074;
+  --kc-json-bool: #c9a6ff;
+}
+.body {
+  border-top: 1px solid var(--con-line);
+  max-height: 70vh;
+  overflow: auto;
+  color: var(--con-tx);
+  font: 12px/1.6 var(--font-mono);
+}
+.pad {
+  padding: 12px 14px;
+}
+.pre {
+  margin: 0;
+  padding: 12px 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.6 var(--font-mono);
+  color: var(--con-tx);
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--con-line2);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--con-tx);
+  font: 500 11px var(--font-ui);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover {
+  border-color: var(--con-line3);
+}
+.btn[aria-pressed='true'] {
+  background: var(--con-tx);
+  color: var(--con-bg);
+  border-color: var(--con-tx);
+}
+.meta {
+  color: var(--con-dim);
+  font: 500 11px var(--font-ui);
+  white-space: nowrap;
+}
+.note {
+  padding: 8px 14px;
+  border-top: 1px solid var(--con-line);
+  background: var(--con-warn-bg);
+  color: var(--con-warn);
+  font: 500 12px var(--font-ui);
+}
+
+/* JSON tree */
+.row {
+  position: relative;
+  padding-right: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.toggle {
+  cursor: pointer;
+}
+.toggle:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.caret {
+  position: absolute;
+  margin-left: -13px;
+  color: var(--con-dim);
+  font-size: 10px;
+  line-height: 19px;
+  transition: transform var(--dur-fast);
+}
+.open {
+  transform: rotate(90deg);
+}
+.key {
+  color: var(--kc-json-key);
+}
+.idx,
+.punct,
+.summary,
+.null {
+  color: var(--con-dim);
+}
+.summary,
+.null {
+  font-style: italic;
+}
+.str {
+  color: var(--kc-json-str);
+}
+.num {
+  color: var(--kc-json-num);
+}
+.bool {
+  color: var(--kc-json-bool);
+}
+.more {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--con-tx);
+  text-decoration: underline;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Images on a checkerboard; binary as a hex dump. */
+.img {
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+  background-color: #1a1a1a;
+  background-image:
+    linear-gradient(45deg, #262626 25%, transparent 25%), linear-gradient(-45deg, #262626 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #262626 75%), linear-gradient(-45deg, transparent 75%, #262626 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.img img {
+  max-width: 100%;
+  max-height: 360px;
+}
+
+/* Stack traces: the app's own frames stand out, platform frames recede. */
+.stack {
+  margin: 0;
+  padding: 10px 0;
+  font: 12px/1.65 var(--font-mono);
+  color: var(--con-tx);
+}
+.stack > span {
+  display: block;
+  padding: 0 14px;
+  overflow-wrap: anywhere;
+}
+.frame {
+  padding-left: 38px !important;
+  text-indent: -18px;
+  word-break: break-all;
+}
+.head {
+  color: var(--con-err);
+  font-weight: 700;
+}
+.app {
+  background: rgba(249, 66, 58, 0.12);
+  box-shadow: inset 3px 0 0 var(--accent);
+  color: #fff;
+}
+.app .fn {
+  font-weight: 700;
+}
+.lib {
+  color: var(--con-tx);
+}
+.framework {
+  color: var(--con-dim);
+}
+.loc {
+  color: var(--con-dim);
+}
+.app .loc {
+  color: var(--con-tx);
+}
+.cause {
+  margin-top: 6px;
+  color: var(--con-err);
+}
+.dim {
+  color: var(--con-dim);
+  font-style: italic;
+}

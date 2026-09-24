@@ -1,0 +1,70 @@
+/* A virtualized table in the design system's DataTable look: the header is
+   `th` type on a rule, rows are 1px-ruled with an s2 hover, and the row in
+   focus is s2 with the accent bar the sidebar uses for the current page. */
+.card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.cols {
+  display: grid;
+  grid-template-columns: var(--cols);
+  gap: 0 14px;
+  align-items: center;
+  padding: 0 16px;
+}
+.head {
+  flex: none;
+  height: 38px;
+  border-bottom: 1px solid var(--line);
+}
+.th {
+  font: 600 11px var(--font-ui);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tx3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.row {
+  height: 100%;
+  border-bottom: 1px solid var(--line);
+  font: 400 13px var(--font-ui);
+  color: var(--tx);
+  cursor: pointer;
+  position: relative;
+}
+.row:hover {
+  background: var(--s2);
+}
+.row[aria-selected='true'] {
+  background: var(--s2);
+}
+.row[aria-selected='true']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  background: var(--accent);
+}
+.cell {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.right {
+  text-align: right;
+  justify-content: flex-end;
+}
+.empty {
+  padding: 16px;
+}
