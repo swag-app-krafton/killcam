@@ -8,6 +8,7 @@ import com.krafton.killcam.core.model.LogKind
 import com.krafton.killcam.core.model.LogLevel
 import com.krafton.killcam.core.model.MatchType
 import com.krafton.killcam.core.model.MockAction
+import com.krafton.killcam.core.model.MockFailure
 import com.krafton.killcam.core.model.MockRuleInput
 import com.krafton.killcam.core.model.TimelineType
 import com.krafton.killcam.core.net.Bodies
@@ -48,6 +49,17 @@ fun demoCore(dataDir: File, port: Int = 8090, clock: () -> Long = System::curren
     platform.core = core
     core.extras["Environment"] = "staging"
     core.extras["User"] = "rahul@swag (KYC: full)"
+
+    // As if shipped from the app repo's killcam-endpoints.json.
+    core.endpoints.loadCatalog(
+        """{"version":1,"endpoints":[
+          {"key":"/v1/home","name":"Home page","method":"GET","group":"page"},
+          {"key":"/v1/offers","name":"Offers","method":"GET","group":"page"},
+          {"key":"/v1/upi/pay","name":"UPI pay","method":"POST","group":"action"},
+          {"key":"/v1/upi/validate-vpa","name":"Validate VPA","method":"POST","group":"action"},
+          {"key":"/v1/transactions/","name":"Transaction detail","method":"GET","group":"data"}
+        ]}""",
+    )
 
     core.flags.register("pay.new_pin_pad", FlagType.Boolean, "false", "Redesigned UPI PIN pad", "Payments")
     core.flags.register("pay.max_amount_paise", FlagType.Int, "10000000", "Per-transaction cap", "Payments")
@@ -173,6 +185,13 @@ class SwagPaySimulator(
             listOf(Header("Authorization", "Bearer eyJhbGciOi…"), Header("X-Device-Id", "a1b2c3"), Header("Accept-Encoding", "gzip")),
             requestBody, request?.length?.toLong() ?: 0, "okhttp", mockRuleId = mock?.id,
         ) ?: return
+        // Simulated network: offline, loss, or a failure rule ends the call without a response.
+        val failure = core.conditions.plan()?.failure
+            ?: mock?.failure?.takeIf { mock.action == MockAction.Fail && it != MockFailure.NetworkSwitch }
+        if (failure != null) {
+            core.store.failCall(id, java.io.IOException("simulated ${failure.name}"))
+            return
+        }
         val finalStatus = mock?.status ?: status
         val body = mock?.body ?: response
         core.store.completeCall(

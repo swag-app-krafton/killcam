@@ -11,7 +11,10 @@ import com.krafton.killcam.core.model.KillcamStatus
 import com.krafton.killcam.core.model.LogEntry
 import com.krafton.killcam.core.model.LogKind
 import com.krafton.killcam.core.model.LogLevel
+import com.krafton.killcam.core.model.Endpoint
 import com.krafton.killcam.core.model.MockRule
+import com.krafton.killcam.core.model.NetworkConditions
+import com.krafton.killcam.core.model.PausedCall
 import com.krafton.killcam.core.model.NetworkCall
 import com.krafton.killcam.core.model.NetworkSummary
 import com.krafton.killcam.core.model.TimelineEvent
@@ -101,6 +104,18 @@ public class KillcamStore(
 
     public fun emitMocks(rules: List<MockRule>) {
         emit("mocks", KillcamJson.encodeToString(ListSerializer(MockRule.serializer()), rules))
+    }
+
+    public fun emitConditions(conditions: NetworkConditions) {
+        emit("conditions", KillcamJson.encodeToString(NetworkConditions.serializer(), conditions))
+    }
+
+    public fun emitEndpoints(endpoints: List<Endpoint>) {
+        emit("endpoints", KillcamJson.encodeToString(ListSerializer(Endpoint.serializer()), endpoints))
+    }
+
+    public fun emitBreakpoints(paused: List<PausedCall>) {
+        emit("breakpoints", KillcamJson.encodeToString(ListSerializer(PausedCall.serializer()), paused))
     }
 
     public fun emitFlags(flags: List<Flag>) {
@@ -197,6 +212,17 @@ public class KillcamStore(
             call.copy(
                 responseBody = body,
                 responseSize = maxOf(call.responseSize, body.size),
+            )
+        }
+    }
+
+    /** The request as it actually went out, after a tester edited it at a breakpoint. */
+    public fun editRequest(id: String, method: String, url: String, headers: List<Header>, body: HttpBody?, size: Long) {
+        val (scheme, host, path) = splitUrl(url)
+        update(id) { call ->
+            call.copy(
+                method = method.uppercase(), url = url, scheme = scheme, host = host, path = path,
+                requestHeaders = headers, requestBody = body, requestSize = size,
             )
         }
     }

@@ -5,6 +5,8 @@ import com.krafton.killcam.core.demo.demoCore
 import com.krafton.killcam.core.model.Flag
 import com.krafton.killcam.core.model.Header
 import com.krafton.killcam.core.model.MockRule
+import com.krafton.killcam.core.model.NetworkConditions
+import com.krafton.killcam.core.model.NetworkProfile
 import com.krafton.killcam.core.model.NetworkCall
 import com.krafton.killcam.core.model.NetworkSummary
 import com.krafton.killcam.core.model.SessionBundle
@@ -138,6 +140,58 @@ class ServerTest {
 
         assertEquals(204, send("DELETE", "/api/mocks/${created.id}").statusCode())
         assertEquals(404, send("DELETE", "/api/mocks/${created.id}").statusCode())
+    }
+
+    @Test
+    fun networkConditionsAndRuleResetOverHttp() {
+        assertEquals(200, get("/api/network-conditions").statusCode())
+        assertTrue(get("/api/network-conditions/presets").body().contains("\"profile\":\"slow_3g\""))
+
+        val slow = send("PUT", "/api/network-conditions", """{"profile":"slow_3g"}""").decode<NetworkConditions>()
+        assertEquals(NetworkProfile.Slow3g, slow.profile)
+        assertEquals(NetworkProfile.Slow3g, core.conditions.get().profile)
+        assertEquals(400, send("PUT", "/api/network-conditions", """{"lossPercent":250}""").statusCode())
+        assertEquals(403, send("PUT", "/api/network-conditions", """{"profile":"offline"}""", killcamHeader = false).statusCode())
+
+        assertEquals(NetworkProfile.Off, send("DELETE", "/api/network-conditions").decode<NetworkConditions>().profile)
+
+        val once = send(
+            "POST", "/api/mocks",
+            """{"name":"dns once","urlPattern":"/v1/upi/pay","action":"fail","failure":"dns_failure","times":1}""",
+        ).decode<MockRule>()
+        assertEquals(once.id, core.mocks.match("POST", "https://api.swag.gg/v1/upi/pay")?.id)
+        assertEquals(null, core.mocks.match("POST", "https://api.swag.gg/v1/upi/pay")?.id?.takeIf { it == once.id })
+        assertEquals(0, send("POST", "/api/mocks/${once.id}/reset").decode<MockRule>().hits)
+        assertEquals(once.id, core.mocks.match("POST", "https://api.swag.gg/v1/upi/pay")?.id)
+        assertEquals(404, send("POST", "/api/mocks/nope/reset").statusCode())
+    }
+
+    @Test
+    fun endpointCatalogBreakpointsAndRepeatOverHttp() {
+        val created = send("POST", "/api/endpoints", """{"key":"/page/fetch","method":"POST"}""")
+        assertEquals(200, created.statusCode())
+        assertTrue(get("/api/endpoints").body().contains("\"group\":\"page\""))
+        val export = get("/api/endpoints/export?download=1")
+        assertTrue(export.headers().firstValue("Content-Disposition").orElse("").contains("killcam-endpoints.json"))
+        assertTrue(export.body().contains("\"version\": 1") && export.body().contains("\"key\": \"/page/fetch\""), export.body())
+
+        val rule = send("POST", "/api/mocks", """{"name":"","urlPattern":"","endpoint":"/page/fetch","action":"breakpoint","breakOn":"both"}""")
+            .decode<MockRule>()
+        assertEquals("POST", rule.method)
+        assertEquals(400, send("POST", "/api/mocks", """{"name":"x","urlPattern":"","endpoint":"/nope"}""").statusCode())
+
+        assertEquals(204, send("DELETE", "/api/endpoints?key=%2Fpage%2Ffetch").statusCode())
+        assertEquals(404, send("DELETE", "/api/endpoints?key=%2Fpage%2Ffetch").statusCode())
+
+        assertEquals("[]", get("/api/breakpoints").body())
+        assertEquals(404, send("POST", "/api/breakpoints/nope", """{"action":"continue"}""").statusCode())
+
+        val callId = core.store.beginCall("GET", "https://api.swag.gg/v1/home", emptyList(), null, 0, "test")!!
+        assertEquals(409, send("POST", "/api/network/$callId/repeat", """{"count":2}""").statusCode())
+        core.replayer = com.krafton.killcam.core.net.CallReplayer { _, request -> request.count }
+        assertTrue(send("POST", "/api/network/$callId/repeat", """{"count":3,"concurrent":true}""").body().contains("\"started\":3"))
+        assertEquals(400, send("POST", "/api/network/$callId/repeat", """{"count":99}""").statusCode())
+        assertEquals(404, send("POST", "/api/network/nope/repeat", "").statusCode())
     }
 
     @Test
