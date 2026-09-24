@@ -15,7 +15,8 @@ Built first for **Swag Pay**.
 | Panel | What you get |
 |---|---|
 | **Network** | Every OkHttp/Ktor call: headers, bodies (JSON tree, images), timing, cURL, HAR export, "Mock this" |
-| **Mocks** | Rules that return canned responses, add delay or simulate timeouts / no network; they persist across restarts |
+| **Mocks** | Network throttling (2G, 3G, flaky Wi-Fi, offline, custom). Rules that return canned responses or API errors, add delay, fail calls the way real networks do (DNS failure, a network switch mid-download, connection refused, TLS), or pause them at a breakpoint to edit. Rules can fire once or only on a share of calls. Everything persists across restarts |
+| **Endpoints** | The app's APIs by name (`/page/fetch`, `/data/sync`), from a catalog file in the app repo, code and testers; target them with rules, discover new ones in traffic, export them back to the repo |
 | **Logs** | `Killcam.log`, analytics events and the app's own logcat (including React Native `console.log`) |
 | **Crashes** | Fatal and non-fatal, with app frames highlighted and a "Watch killcam" link into the replay |
 | **Replay** | Screenshots, taps, screen changes, network and logs on one timeline, plus a player |
@@ -136,6 +137,73 @@ the JS runtime.
 traffic, add the interceptor to RN's client factory:
 `OkHttpClientProvider.setOkHttpClientFactory { OkHttpClientProvider.createClientBuilder(ctx).addInterceptor(KillcamInterceptor("react-native")).build() }`.
 
+## Simulating bad networks
+
+Use **Mocks → Network conditions** to slow down or break every call that goes through
+`KillcamInterceptor`. Pick a profile (GPRS, 2G, Slow/Fast 3G, 4G, Flaky Wi-Fi, Offline) or
+set latency, jitter, bandwidth and loss yourself. Mock rules reproduce one endpoint going wrong:
+
+| Scenario | Rule |
+|---|---|
+| DNS can't resolve | Fail → *DNS can't resolve* |
+| Wi-Fi ↔ mobile data switch mid-download | Fail → *Network switch*, drop after N bytes |
+| Backend down | Fail → *Connection refused* |
+| Pinning / TLS failure | Fail → *TLS handshake failed* |
+| Fails once, the retry succeeds | any rule with *Only the first N calls* = 1 |
+| Flaky backend | any rule with *Share of calls* = 30% |
+| 500 / 503 + Retry-After / 429 / 401 / HTML error page / malformed JSON | Respond → *API error templates* |
+| A different field value, a missing auth header | Breakpoint → edit the response or request, then continue |
+| Double-submit | Network → a call → *Repeat* ×2, all at once |
+
+The same things can be done from code in a debug build, e.g. for a debug menu or an
+instrumented test. `killcam-no-op` has the same functions and they do nothing:
+
+```kotlin
+Killcam.setNetworkProfile(KillcamNetworkProfile.Slow3g)
+Killcam.setNetworkConditions(latencyMs = 800, downloadKbps = 64, lossPercent = 10)
+Killcam.clearNetworkConditions()
+
+val id = Killcam.failRequests("/v1/upi/pay", KillcamFailure.DnsFailure, times = 1)
+Killcam.failRequests("/v1/transactions", KillcamFailure.NetworkSwitch, dropAfterBytes = 2048)
+Killcam.mockResponse("/v1/home", status = 503, body = """{"error":"maintenance"}""", probability = 30)
+Killcam.removeMock(id!!)
+```
+
+Test scripts can also do this over HTTP; see [docs/API.md](docs/API.md#from-test-automation).
+Conditions and rules survive restarts. While conditions are on, a banner in Network says so,
+and every change is marked on the replay timeline. Only OkHttp traffic through the
+interceptor is affected; WebViews and other HTTP stacks see the real network.
+
+### The endpoint catalog
+
+Testers pick "which API" from a list instead of typing URL patterns. The list lives in the
+app repo, so every build and every tester shares it:
+
+```jsonc
+// app/src/debug/assets/killcam-endpoints.json: loaded automatically at install
+{
+  "version": 1,
+  "endpoints": [
+    { "key": "/page/fetch", "method": "POST", "name": "Fetch page" },
+    { "key": "/action/view" },
+    { "key": "/data/sync", "urlPattern": "/v2/data/sync", "description": "Background sync" }
+  ]
+}
+```
+
+```kotlin
+Killcam.registerEndpoint("/user/profile", method = "GET")   // or register one in code
+Killcam.failRequests("/data/sync", KillcamFailure.NetworkSwitch)  // a registered key targets that endpoint
+```
+
+The **Endpoints** screen groups endpoints by their first path segment (`page`, `action`,
+`data`) and shows each one's calls and errors. It also lists paths seen in traffic that no
+endpoint covers yet, with ids collapsed (`/v1/transactions/*`). From there, testers can add
+endpoints, and **Export for repo** marks which ones are new. To put them in GitHub, run
+`scripts/pull-endpoints.sh app/src/debug/assets/killcam-endpoints.json` with the phone on
+USB, then commit the file and open a PR. The next debug build ships them to everyone. The
+device never holds GitHub credentials.
+
 ## What it captures, and what it doesn't
 
 - **Screenshots** use PixelCopy of the activity window, downscaled to 540 px JPEG. They are
@@ -186,6 +254,7 @@ docs/API.md       HTTP API; dashboard/src/api/types.ts is the wire contract
 ./gradlew :killcam-core:test          # server, security, sessions, mocks, flags
 ./gradlew :killcam-core:demo          # real server + simulated Swag Pay session on :8090
 ./scripts/check-noop-api.sh           # killcam and killcam-no-op expose the same API
+./scripts/pull-endpoints.sh <file>    # writes the device's endpoint catalog into the app repo
 ./gradlew :sample:installDebug        # demo app on a device
 
 cd dashboard && npm run mock          # dashboard against a Node mock of the API
