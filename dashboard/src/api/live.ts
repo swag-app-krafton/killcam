@@ -143,7 +143,7 @@ async function onHello(hello: LiveEvents['hello'], gen: number): Promise<void> {
       sessions,
       network: network.slice(-CAP.network),
       logs: logs.slice(-CAP.logs),
-      timeline: timeline.slice(-CAP.timeline),
+      timeline: timeline.slice(-CAP.timeline).sort(byTsSeq),
       crashes,
       mocks,
       flags,
@@ -169,6 +169,16 @@ function lastSeq(arr: { seq: number }[]): number {
   return arr.length ? arr[arr.length - 1].seq : 0;
 }
 
+function maxSeq(arr: { seq: number }[]): number {
+  let m = 0;
+  for (const x of arr) if (x.seq > m) m = x.seq;
+  return m;
+}
+
+/** Timeline order is ts, then seq: a screenshot is stamped with its capture
+ *  time, which can precede events recorded while it was encoding. */
+export const byTsSeq = (a: { ts: number; seq: number }, b: { ts: number; seq: number }) => a.ts - b.ts || a.seq - b.seq;
+
 function flush(): void {
   flushTimer = undefined;
   if (!queue.length) return;
@@ -181,7 +191,8 @@ function flush(): void {
   let tlCopied = false;
   let refreshSessions = false;
   const logSeq = lastSeq(logs);
-  const tlSeq = lastSeq(timeline);
+  const tlSeq = maxSeq(timeline);
+  let tlUnordered = false;
 
   for (const [type, data] of batch) {
     switch (type) {
@@ -214,6 +225,7 @@ function flush(): void {
           timeline = timeline.slice();
           tlCopied = true;
         }
+        if (timeline.length && byTsSeq(timeline[timeline.length - 1], data) > 0) tlUnordered = true;
         timeline.push(data);
         break;
       case 'crash':
@@ -241,6 +253,7 @@ function flush(): void {
   }
   if (network.length > CAP.network) network = network.slice(-CAP.network);
   if (logs.length > CAP.logs) logs = logs.slice(-CAP.logs);
+  if (tlUnordered) timeline.sort(byTsSeq);
   if (timeline.length > CAP.timeline) timeline = timeline.slice(-CAP.timeline);
   liveStore.set({ network, logs, timeline, crashes, mocks, flags, status });
   if (refreshSessions) void reloadSessions();

@@ -1,7 +1,14 @@
 import type { NetworkSummary } from '../api/types';
 
+/** A number in en-US grouping (swagperf's fmt): '–' when there is none. */
+export const fmt = (v: number | null | undefined, dp = 0): string =>
+  v == null || !Number.isFinite(v) ? '–' : v.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+
+/** "1 call", "3 calls": every count carries its unit. */
+export const plural = (n: number, one: string, many = one + 's'): string => `${fmt(n)} ${n === 1 ? one : many}`;
+
 export function fmtBytes(n: number | null | undefined): string {
-  if (n == null || n < 0) return '—';
+  if (n == null || n < 0) return '–';
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} KB`;
   if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
@@ -9,7 +16,7 @@ export function fmtBytes(n: number | null | undefined): string {
 }
 
 export function fmtDuration(ms: number | null | undefined): string {
-  if (ms == null) return '—';
+  if (ms == null) return '–';
   if (ms < 1000) return `${Math.round(ms)} ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 2 : 1)} s`;
   const m = Math.floor(ms / 60_000);

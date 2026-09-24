@@ -67,14 +67,24 @@ export function SelectInput({ className, ...rest }: SelectHTMLAttributes<HTMLSel
   return <select className={[k.input, k.select, className].filter(Boolean).join(' ')} {...rest} />;
 }
 
-/** A labelled form row: the design system's field label over any control. */
-export function FormField({ label, children, hint, grow }: { label: ReactNode; children: ReactNode; hint?: ReactNode; grow?: boolean }) {
-  return (
-    <label className={grow ? `${k.field} ${k.grow}` : k.field}>
+/** A labelled form row: the design system's field label over a control.
+ *  `group` is for several controls (a segmented choice, rows): a div, so a
+ *  click on the label text does not press the first button. */
+export function FormField({ label, children, hint, grow, group }: { label: ReactNode; children: ReactNode; hint?: ReactNode; grow?: boolean; group?: boolean }) {
+  const cls = grow ? `${k.field} ${k.grow}` : k.field;
+  const inner = (
+    <>
       <span className={k.fieldLabel}>{label}</span>
       {children}
       {hint && <span className={k.fieldHint}>{hint}</span>}
-    </label>
+    </>
+  );
+  return group ? (
+    <div className={cls} role="group" aria-label={typeof label === 'string' ? label : undefined}>
+      {inner}
+    </div>
+  ) : (
+    <label className={cls}>{inner}</label>
   );
 }
 

@@ -10,3 +10,8 @@ dashboard/node_modules/
 dashboard/dist/
 rozenite-plugin/node_modules/
 rozenite-plugin/dist/
+# Local Claude Code state (the issue-screenshot inbox, settings) stays private;
+# the shared agent definitions and project skills are committed.
+.claude/*
+!.claude/agents/
+!.claude/skills/

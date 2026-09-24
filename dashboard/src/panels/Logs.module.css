@@ -1,0 +1,196 @@
+/* Logs: filters above one console (the design system's LogConsole surface,
+   windowed for thousands of lines). */
+.page {
+  flex: 1 1 0;
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.chipRow {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.chipRow::-webkit-scrollbar {
+  display: none;
+}
+/* Phone: 40px tap targets for the filter chips. */
+.chipRow > * {
+  height: 36px !important;
+  flex: none;
+}
+.sep {
+  width: 1px;
+  height: 20px;
+  background: var(--line2);
+  margin: 0 4px;
+}
+.console {
+  flex: 1 1 0;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  background: var(--con-bg);
+  color: var(--con-tx);
+  border: 1px solid var(--line);
+  font: 12px/1.7 var(--font-mono);
+}
+.line {
+  border-bottom: 1px solid transparent;
+}
+.warn {
+  background: var(--con-warn-bg);
+}
+.warn .msg,
+.warn .msg2 {
+  color: var(--con-warn);
+}
+.error {
+  background: var(--con-err-bg);
+}
+.error .msg,
+.error .msg2 {
+  color: var(--con-err);
+}
+.open {
+  background: #161616;
+  border-bottom-color: var(--con-line);
+  box-shadow: inset 3px 0 0 var(--con-tx);
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 24px;
+  padding: 0 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.head:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.time {
+  flex: none;
+  color: var(--con-dim);
+}
+.level {
+  flex: none;
+  width: 12px;
+  font-weight: 700;
+}
+.tag {
+  flex: none;
+  width: 150px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--con-dim);
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.tag:hover {
+  color: var(--con-tx);
+  text-decoration: underline;
+}
+.msg {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.attrs {
+  color: var(--con-dim);
+}
+.flag {
+  flex: none;
+  color: var(--con-err);
+  font-weight: 700;
+}
+/* Phone rows: time, level and tag on one line, two lines of message. */
+.head2 {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  height: 64px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 18px;
+  white-space: nowrap;
+  font-size: 11.5px;
+}
+.meta .tag {
+  width: auto;
+  min-width: 0;
+  flex: 0 1 auto;
+  min-height: 18px;
+}
+.msg2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font: 12.5px/1.45 var(--font-mono);
+  color: var(--con-tx);
+  overflow-wrap: anywhere;
+}
+.detail {
+  padding: 4px 14px 14px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font: 12px/1.6 var(--font-mono);
+}
+.detailMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--con-dim);
+  font: 500 11.5px var(--font-ui);
+  flex-wrap: wrap;
+}
+.full {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.kv {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(90px, max-content) 1fr;
+  gap: 2px 14px;
+}
+.kv dt {
+  color: var(--con-dim);
+}
+.kv dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.stack {
+  border: 1px solid var(--con-line);
+}
+@media (max-width: 759px) {
+  .tag {
+    width: 96px;
+  }
+  .detail {
+    padding-left: 14px;
+  }
+}

@@ -1,0 +1,377 @@
+/* The app shell, after swagperf's app/Shell.module.css (sidebar, top bar,
+   page), plus Killcam's phone window (?embed=1) and React Native DevTools
+   (?embed=devtools) densities. Tokens only. */
+.root {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  background: var(--bg);
+  color: var(--tx);
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- sidebar */
+.nav {
+  width: 232px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  height: 100%;
+  z-index: var(--z-sidebar);
+}
+.navRail {
+  width: 72px;
+}
+.navDrawer {
+  width: 264px;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+}
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  z-index: calc(var(--z-sidebar) - 1);
+}
+.brand {
+  height: 72px;
+  flex: none;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+.brandMark {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  display: grid;
+  place-items: center;
+  font: 800 12px var(--font-display);
+}
+.brandName {
+  font: 800 11px/1.25 var(--font-display);
+  letter-spacing: 0.08em;
+}
+.group {
+  padding: 22px 12px 2px;
+}
+.groupLabel {
+  padding: 0 10px 8px;
+}
+.item {
+  position: relative;
+  width: 100%;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px;
+  border-radius: 4px;
+  color: var(--tx2);
+  font-size: 14px;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.item:hover {
+  background: var(--s2);
+  text-decoration: none;
+}
+.item[aria-current='page'] {
+  background: var(--s2);
+  color: var(--tx);
+  font-weight: 600;
+}
+.item[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  background: var(--accent);
+}
+.mark {
+  width: 22px;
+  flex: none;
+  font: 700 10px var(--font-display);
+  color: var(--tx3);
+}
+.item[aria-current='page'] .mark {
+  color: var(--accent-tx);
+}
+.navFoot {
+  padding: 16px 12px;
+  border-top: 1px solid var(--line);
+}
+
+/* ------------------------------------------------------------ main column */
+.column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px 24px;
+  flex-wrap: wrap;
+  padding: 14px var(--page-pad);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.titleBlock {
+  flex: 1 1 300px;
+  min-width: 0;
+}
+.title {
+  font: 800 20px/1.1 var(--font-display);
+  letter-spacing: -0.005em;
+}
+.subtitle {
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--tx3);
+}
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.main {
+  flex: 1;
+  overflow: auto;
+}
+.page {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 32px var(--page-pad) 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+/* Pages built around one long list (Network, Logs, Replay) are exactly the
+   window's height, so the list gets a definite height to window within. */
+.fill {
+  height: 100%;
+}
+.dockSlot {
+  display: contents;
+}
+
+/* ------------------------------------------------------------ page header */
+.h1 {
+  margin-top: 12px;
+}
+.hint {
+  margin-top: 10px;
+  text-wrap: pretty;
+}
+.box {
+  min-width: 260px;
+  max-width: 380px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--s1);
+}
+@media (max-width: 759px) {
+  .box {
+    max-width: none;
+    width: 100%;
+  }
+}
+.boxId {
+  font: 800 16px/1 var(--font-display);
+  letter-spacing: 0.02em;
+}
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 4px;
+  font: 500 12.5px var(--font-ui);
+  color: var(--tx2);
+  white-space: nowrap;
+}
+.pickerWrap {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+.pickerHead {
+  padding: 4px 6px 8px;
+}
+.pickerScroll {
+  overflow-x: auto;
+}
+
+/* --------------------------------------------- React Native DevTools host */
+.devtools {
+  --page-pad: 20px;
+}
+.devtools .top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.devtools .page {
+  padding-top: 18px;
+  gap: 18px;
+}
+.devtools .h1 {
+  margin-top: 6px;
+}
+.devtools .hint {
+  margin-top: 4px;
+}
+
+/* ------------------------------------------------------ phone (?embed=1) */
+.embed {
+  --page-pad: 12px;
+}
+.embed .page {
+  padding: 12px var(--page-pad) 16px;
+  gap: 12px;
+}
+/* The phone never scrolls sideways; wide tables scroll inside their cards. */
+.embed .main {
+  overflow-x: hidden;
+}
+.etop {
+  flex: none;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.etopMark {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  display: grid;
+  place-items: center;
+  font: 800 9px var(--font-display);
+}
+.sessionBtn {
+  min-width: 0;
+  max-width: 46vw;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--s1);
+  color: var(--tx);
+  font: 500 13px var(--font-ui);
+  cursor: pointer;
+}
+.sessionBtnText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tabs {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  height: 56px;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+.tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--tx3);
+  font: 500 11px var(--font-ui);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tab > span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab[aria-current='page'] {
+  color: var(--tx);
+  font-weight: 600;
+}
+.tab[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 22%;
+  right: 22%;
+  height: 3px;
+  background: var(--accent);
+}
+.pin {
+  font: 700 34px/1 var(--font-mono);
+  letter-spacing: 0.18em;
+  color: var(--tx);
+}
+.strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 4px 8px 4px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--s1);
+  font: 500 12.5px var(--font-ui);
+  color: var(--tx2);
+}
+.stripWarn {
+  background: var(--warn-bg);
+  color: var(--tx);
+}
+
+/* ------------------------------------------------------------ PIN screen */
+.pinScreen {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-toast);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--bg);
+}
+.pinCard {
+  width: min(380px, 100%);
+  padding: 28px 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--s1);
+}
+.pinInput {
+  height: 52px !important;
+  text-align: center;
+  font: 700 24px var(--font-mono) !important;
+  letter-spacing: 0.4em;
+}

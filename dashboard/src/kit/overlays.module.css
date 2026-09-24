@@ -1,0 +1,137 @@
+/* Bottom sheet: the phone's menus and pickers, from the design system's
+   surface, scrim, radius and shadow tokens. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-panel) + 10);
+  background: var(--scrim);
+  display: flex;
+  align-items: flex-end;
+}
+.sheet {
+  width: 100%;
+  max-height: 88dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--s1);
+  border-top: 1px solid var(--line2);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow);
+  padding-bottom: env(safe-area-inset-bottom);
+  outline: none;
+}
+.grip {
+  width: 36px;
+  height: 4px;
+  margin: 8px auto 2px;
+  border-radius: var(--radius-pill);
+  background: var(--line2);
+  flex: none;
+}
+.head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 0 8px 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+.title {
+  flex: 1;
+  min-width: 0;
+  font: 700 15px var(--font-display);
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 0 12px;
+}
+.foot {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+}
+.item {
+  position: relative;
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 16px 6px 20px;
+  border: 0;
+  background: transparent;
+  color: var(--tx);
+  text-align: left;
+  font: inherit;
+}
+button.item {
+  cursor: pointer;
+}
+button.item:hover,
+button.item:focus-visible {
+  background: var(--s2);
+}
+.item:disabled {
+  color: var(--tx3);
+  cursor: default;
+}
+.item.active {
+  background: var(--s2);
+}
+.item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  background: var(--accent);
+}
+.itemIcon {
+  width: 22px;
+  display: flex;
+  justify-content: center;
+  color: var(--tx2);
+  flex: none;
+}
+.itemText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.itemLabel {
+  font: 500 14px var(--font-ui);
+}
+.itemHint {
+  font: 400 12px/1.45 var(--font-ui);
+  color: var(--tx3);
+}
+.itemRight {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tx3);
+  font: 500 12px var(--font-ui);
+}
+.danger .itemLabel,
+.danger .itemIcon {
+  color: var(--fail);
+}
+.section {
+  padding: 14px 20px 6px;
+}
+
+/* Toasts sit above the phone's bottom tabs. */
+.liftToast > div {
+  bottom: calc(56px + 20px + env(safe-area-inset-bottom)) !important;
+}
