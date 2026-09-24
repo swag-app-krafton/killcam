@@ -1,7 +1,11 @@
 package com.krafton.killcam.core
 
+import com.krafton.killcam.core.endpoints.EndpointRegistry
 import com.krafton.killcam.core.flags.FlagRegistry
+import com.krafton.killcam.core.mock.BreakpointManager
 import com.krafton.killcam.core.mock.MockEngine
+import com.krafton.killcam.core.mock.NetworkConditionsEngine
+import com.krafton.killcam.core.net.CallReplayer
 import com.krafton.killcam.core.model.AppInfo
 import com.krafton.killcam.core.model.Crash
 import com.krafton.killcam.core.model.CrashSummary
@@ -10,6 +14,7 @@ import com.krafton.killcam.core.model.KeyValue
 import com.krafton.killcam.core.model.KillcamStatus
 import com.krafton.killcam.core.model.LogKind
 import com.krafton.killcam.core.model.LogLevel
+import com.krafton.killcam.core.model.NetworkConditions
 import com.krafton.killcam.core.model.FlagType
 import com.krafton.killcam.core.model.RemoteConfigInfo
 import com.krafton.killcam.core.model.RemoteConfigSource
@@ -57,6 +62,7 @@ public class KillcamCore(
     public val config: CoreConfig,
     public val flags: FlagRegistry = FlagRegistry(),
     public val actions: ActionRegistry = ActionRegistry(),
+    public val endpoints: EndpointRegistry = EndpointRegistry(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     public val startMs: Long = clock()
@@ -65,9 +71,30 @@ public class KillcamCore(
     public val sessions: SessionStore =
         SessionStore(File(config.dataDir, "sessions"), sessionId, config.maxSavedSessions, config.maxScreenshots)
     public val mocks: MockEngine =
-        MockEngine(JsonFile(File(config.dataDir, "mocks.json"), MockEngine.storageSerializer()), clock) {
+        MockEngine(
+            JsonFile(File(config.dataDir, "mocks.json"), MockEngine.storageSerializer()),
+            clock,
+            endpoints = endpoints,
+        ) {
             store.emitMocks(it)
         }
+    public val conditions: NetworkConditionsEngine =
+        NetworkConditionsEngine(
+            JsonFile(File(config.dataDir, "network-conditions.json"), NetworkConditionsEngine.storageSerializer()),
+        ) {
+            store.emitConditions(it)
+            // On the replay, so a bug bundle says which network it was recorded on.
+            store.timeline(
+                TimelineType.Custom,
+                "Network: ${NetworkConditionsEngine.label(it)}",
+                KillcamJson.encodeToJsonElement(NetworkConditions.serializer(), it) as JsonObject,
+            )
+        }
+    public val breakpoints: BreakpointManager = BreakpointManager(clock) { store.emitBreakpoints(it) }
+
+    /** Re-sends captured calls; set by the HTTP integration once it has seen a call (OkHttp: KillcamInterceptor). */
+    @Volatile public var replayer: CallReplayer? = null
+
     public val access: AccessControl = AccessControl(clock)
 
     /** Free-form rows the app adds to the Device panel (`Killcam.setInfo`). */
@@ -77,6 +104,13 @@ public class KillcamCore(
     private val manualSaves = AtomicInteger()
 
     init {
+        if (conditions.get().active) {
+            val label = NetworkConditionsEngine.label(conditions.get())
+            store.log(LogLevel.Warn, "Killcam", "Network conditions from the last run are active: $label")
+            store.timeline(TimelineType.Custom, "Network: $label")
+        }
+        endpoints.attachStorage(JsonFile(File(config.dataDir, "endpoints.json"), EndpointRegistry.storageSerializer))
+        endpoints.onListChanged = { store.emitEndpoints(it) }
         flags.attachStorage(JsonFile(File(config.dataDir, "flags.json"), FlagRegistry.storageSerializer))
         flags.onListChanged = { store.emitFlags(it) }
     }

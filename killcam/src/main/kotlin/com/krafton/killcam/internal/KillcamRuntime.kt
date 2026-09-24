@@ -8,6 +8,7 @@ import android.util.Log
 import com.krafton.killcam.KillcamConfig
 import com.krafton.killcam.core.CoreConfig
 import com.krafton.killcam.core.KillcamCore
+import com.krafton.killcam.core.endpoints.EndpointRegistry
 import com.krafton.killcam.core.flags.FlagRegistry
 import com.krafton.killcam.core.model.TimelineType
 import com.krafton.killcam.core.platform.ActionRegistry
@@ -24,6 +25,7 @@ internal class KillcamRuntime(
     flags: FlagRegistry,
     actions: ActionRegistry,
     val mmkvRegistry: Map<String, MmkvRegistration>,
+    endpoints: EndpointRegistry,
 ) {
     val main = Handler(Looper.getMainLooper())
     val platform = AndroidPlatform(app, this)
@@ -36,6 +38,7 @@ internal class KillcamRuntime(
         ),
         flags = flags,
         actions = actions,
+        endpoints = endpoints,
     )
     val redactedHeaders: Set<String> = config.redactHeaders.map { it.lowercase() }.toSet()
 
@@ -63,6 +66,7 @@ internal class KillcamRuntime(
 
     fun start() {
         registerBuiltInActions()
+        loadEndpointCatalog()
         if (config.captureCrashes) CrashHandler.install(this)
         app.registerActivityLifecycleCallbacks(activities)
         core.store.timeline(TimelineType.Lifecycle, "Process start")
@@ -84,6 +88,21 @@ internal class KillcamRuntime(
                 readyCallbacks.clear()
             }
         }
+    }
+
+    /** The repo's endpoint catalog, shipped as a debug asset. A missing file is normal; a broken one is logged. */
+    private fun loadEndpointCatalog() {
+        val name = config.endpointsAsset ?: return
+        val text = try {
+            app.assets.open(name).bufferedReader().use { it.readText() }
+        } catch (_: java.io.FileNotFoundException) {
+            return
+        } catch (e: java.io.IOException) {
+            Log.w(TAG, "Could not read endpoint catalog asset '$name'", e)
+            return
+        }
+        runCatching { core.endpoints.loadCatalog(text) }
+            .onFailure { Log.w(TAG, "Endpoint catalog asset '$name' is not valid: ${it.message}") }
     }
 
     private fun registerBuiltInActions() {

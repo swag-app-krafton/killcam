@@ -257,13 +257,39 @@ public enum class MockAction {
     @SerialName("respond") Respond,
     @SerialName("delay") Delay,
     @SerialName("fail") Fail,
+    /** Pause the call for a tester to inspect, edit, continue or fail it; see [BreakOn]. */
+    @SerialName("breakpoint") Breakpoint,
+}
+
+@Serializable
+public enum class BreakOn {
+    @SerialName("request") Request,
+    @SerialName("response") Response,
+    @SerialName("both") Both,
 }
 
 @Serializable
 public enum class MockFailure {
+    /** Read timeout: `SocketTimeoutException: timeout`. */
     @SerialName("timeout") Timeout,
     @SerialName("no_network") NoNetwork,
     @SerialName("connection_reset") ConnectionReset,
+    /** `UnknownHostException` worded as Android words a failed lookup. */
+    @SerialName("dns_failure") DnsFailure,
+    /** `ConnectException`: nothing listening, server down. */
+    @SerialName("connection_refused") ConnectionRefused,
+    /** `SocketTimeoutException` while connecting: unreachable host, captive portal. */
+    @SerialName("connect_timeout") ConnectTimeout,
+    /** `SSLHandshakeException`: pinning or TLS failure. */
+    @SerialName("ssl_handshake") SslHandshake,
+    /**
+     * The real call goes out and its headers arrive, then the body aborts after
+     * [MockRule.dropAfterBytes] with `SocketException: Software caused connection
+     * abort`, as when the phone switches between Wi-Fi and mobile data.
+     */
+    @SerialName("network_switch") NetworkSwitch,
+    /** `IOException: unexpected end of stream`: the server closed a reused connection. */
+    @SerialName("unexpected_eof") UnexpectedEof,
 }
 
 @Serializable
@@ -282,7 +308,20 @@ public data class MockRule(
     val failure: MockFailure,
     val hits: Long,
     val createdMs: Long,
-)
+    /** network_switch: body bytes delivered before the connection drops. */
+    val dropAfterBytes: Long = 0,
+    /** Applies to the first [times] matches only, then lets calls through; 0 means always. */
+    val times: Int = 0,
+    /** Percent (1..100) of matching calls the rule applies to; the rest fall through to later rules. */
+    val probability: Int = 100,
+    /** Key of the catalog endpoint the rule was made for; the match was copied from it. */
+    val endpoint: String? = null,
+    /** breakpoint: where the call pauses. */
+    val breakOn: BreakOn = BreakOn.Request,
+) {
+    /** True once a rule limited by [times] has been used up. */
+    public val exhausted: Boolean get() = times > 0 && hits >= times
+}
 
 @Serializable
 public data class MockRuleInput(
@@ -297,6 +336,198 @@ public data class MockRuleInput(
     val body: String = "",
     val delayMs: Long = 0,
     val failure: MockFailure = MockFailure.Timeout,
+    val dropAfterBytes: Long = 0,
+    val times: Int = 0,
+    val probability: Int = 100,
+    /** A catalog endpoint key. When set, its method (unless [method] is given), pattern and match type are used. */
+    val endpoint: String? = null,
+    val breakOn: BreakOn = BreakOn.Request,
+)
+
+// -------------------------------------------------- network conditions -----
+
+@Serializable
+public enum class NetworkProfile {
+    @SerialName("off") Off,
+    @SerialName("gprs") Gprs,
+    @SerialName("2g") Edge,
+    @SerialName("slow_3g") Slow3g,
+    @SerialName("fast_3g") Fast3g,
+    @SerialName("4g") Lte,
+    @SerialName("flaky_wifi") FlakyWifi,
+    @SerialName("offline") Offline,
+    @SerialName("custom") Custom,
+}
+
+/**
+ * Throttling and loss applied to every call through KillcamInterceptor,
+ * mocked or not. Rates are kilobits per second; 0 means unlimited.
+ */
+@Serializable
+public data class NetworkConditions(
+    val profile: NetworkProfile = NetworkProfile.Off,
+    val latencyMs: Long = 0,
+    val jitterMs: Long = 0,
+    val downloadKbps: Long = 0,
+    val uploadKbps: Long = 0,
+    /** Percent (0..100) of calls that fail as a lost connection. */
+    val lossPercent: Int = 0,
+    /** Every call fails DNS resolution, as with no connectivity at all. */
+    val offline: Boolean = false,
+) {
+    public val active: Boolean
+        get() = offline || latencyMs > 0 || jitterMs > 0 || downloadKbps > 0 || uploadKbps > 0 || lossPercent > 0
+}
+
+/**
+ * What PUT /api/network-conditions accepts. A preset [profile] (anything but
+ * custom) selects that preset and ignores the other fields; otherwise the
+ * fields describe custom conditions and missing ones are 0.
+ */
+@Serializable
+public data class NetworkConditionsInput(
+    val profile: NetworkProfile? = null,
+    val latencyMs: Long = 0,
+    val jitterMs: Long = 0,
+    val downloadKbps: Long = 0,
+    val uploadKbps: Long = 0,
+    val lossPercent: Int = 0,
+    val offline: Boolean = false,
+)
+
+@Serializable
+public data class NetworkPreset(
+    val profile: NetworkProfile,
+    val label: String,
+    val description: String,
+    val conditions: NetworkConditions,
+)
+
+// ------------------------------------------------------------ endpoints -----
+
+@Serializable
+public enum class EndpointSource {
+    /** The catalog file checked into the app's repo (a debug asset). */
+    @SerialName("repo") Repo,
+    /** `Killcam.registerEndpoint` in app code. */
+    @SerialName("code") Code,
+    /** Added or edited from the dashboard, stored on the device. */
+    @SerialName("dashboard") Dashboard,
+}
+
+/** A named API of the app ("/page/fetch") that rules and tools can target. */
+@Serializable
+public data class Endpoint(
+    val key: String,
+    val name: String?,
+    val method: String?,
+    val urlPattern: String,
+    val matchType: MatchType,
+    /** Top-level group: given, or the key's first path segment. */
+    val group: String,
+    val description: String?,
+    val source: EndpointSource,
+    /** Differs from the repo catalog: include it in the next export. */
+    val unexported: Boolean,
+)
+
+/** One entry of the catalog file, and what POST/PUT /api/endpoints accept. */
+@Serializable
+public data class EndpointInput(
+    val key: String,
+    val name: String? = null,
+    val method: String? = null,
+    /** Defaults to [key]. */
+    val urlPattern: String? = null,
+    val matchType: MatchType = MatchType.Contains,
+    val group: String? = null,
+    val description: String? = null,
+)
+
+/** The `killcam-endpoints.json` file format. */
+@Serializable
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+public data class EndpointCatalog(
+    @kotlinx.serialization.EncodeDefault val version: Int = 1,
+    val endpoints: List<EndpointInput>,
+)
+
+// --------------------------------------------------------------- repeat -----
+
+/** Changes applied to a request before it is sent (repeat) or continued (breakpoint). Null keeps the original. */
+@Serializable
+public data class RequestEdit(
+    val method: String? = null,
+    val url: String? = null,
+    val headers: List<Header>? = null,
+    val body: String? = null,
+)
+
+@Serializable
+public data class RepeatRequest(
+    /** 1..50. */
+    val count: Int = 1,
+    /** All at once (races, double-submit) rather than one after another. */
+    val concurrent: Boolean = false,
+    val edit: RequestEdit? = null,
+)
+
+@Serializable
+public data class RepeatResult(val started: Int)
+
+// ---------------------------------------------------------- breakpoints -----
+
+@Serializable
+public enum class BreakStage {
+    @SerialName("request") Request,
+    @SerialName("response") Response,
+}
+
+/** A call held at a breakpoint, waiting for a tester. */
+@Serializable
+public data class PausedCall(
+    val id: String,
+    /** The Network call id, when capture is on. */
+    val callId: String?,
+    val ruleId: String,
+    val ruleName: String,
+    val stage: BreakStage,
+    val pausedMs: Long,
+    /** When it continues unchanged by itself. */
+    val deadlineMs: Long,
+    val method: String,
+    val url: String,
+    val requestHeaders: List<Header>,
+    val requestBody: String?,
+    /** False for one-shot, binary or oversized bodies. */
+    val requestBodyEditable: Boolean,
+    val status: Int?,
+    val responseHeaders: List<Header>,
+    val responseBody: String?,
+    val responseBodyEditable: Boolean,
+)
+
+@Serializable
+public enum class ResumeAction {
+    @SerialName("continue") Continue,
+    @SerialName("fail") Fail,
+}
+
+/**
+ * POST /api/breakpoints/{id}. For continue, null fields keep the original;
+ * [headers] and [body] are the request's at the request stage and the
+ * response's at the response stage; [method] and [url] apply to requests,
+ * [status] to responses.
+ */
+@Serializable
+public data class ResumeRequest(
+    val action: ResumeAction = ResumeAction.Continue,
+    val failure: MockFailure = MockFailure.ConnectionReset,
+    val method: String? = null,
+    val url: String? = null,
+    val status: Int? = null,
+    val headers: List<Header>? = null,
+    val body: String? = null,
 )
 
 // --------------------------------------------------------------- flags -----

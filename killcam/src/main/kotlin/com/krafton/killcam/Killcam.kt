@@ -6,9 +6,19 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.util.Log
+import com.krafton.killcam.core.ApiException
+import com.krafton.killcam.core.endpoints.EndpointRegistry
 import com.krafton.killcam.core.flags.FlagChangeListener
 import com.krafton.killcam.core.flags.FlagRegistry
+import com.krafton.killcam.core.model.EndpointInput
 import com.krafton.killcam.core.model.FlagType
+import com.krafton.killcam.core.model.Header
+import com.krafton.killcam.core.model.MatchType
+import com.krafton.killcam.core.model.MockAction
+import com.krafton.killcam.core.model.MockFailure
+import com.krafton.killcam.core.model.MockRuleInput
+import com.krafton.killcam.core.model.NetworkConditionsInput
+import com.krafton.killcam.core.model.NetworkProfile
 import com.krafton.killcam.core.model.LogKind
 import com.krafton.killcam.core.model.LogLevel
 import com.krafton.killcam.core.model.TimelineType
@@ -38,6 +48,7 @@ public object Killcam {
     // Created eagerly so flags and actions registered before install() are kept.
     internal val flags = FlagRegistry()
     internal val actions = ActionRegistry()
+    internal val endpoints = EndpointRegistry()
     private val pendingInfo = ConcurrentHashMap<String, String>()
     private val listenerAdapters = ConcurrentHashMap<KillcamFlagListener, FlagChangeListener>()
     private val mmkvRegistry = ConcurrentHashMap<String, MmkvRegistration>()
@@ -58,7 +69,7 @@ public object Killcam {
                 return false
             }
             if (!isMainProcess(application)) return false
-            val created = KillcamRuntime(application, config, flags, actions, mmkvRegistry)
+            val created = KillcamRuntime(application, config, flags, actions, mmkvRegistry, endpoints)
             created.core.extras.putAll(pendingInfo)
             runtime = created
             created.start()
@@ -252,7 +263,188 @@ public object Killcam {
         actions.register(label, description, group, action)
     }
 
+    // ------------------------------------------------------------- endpoints --
+
+    /**
+     * Adds an endpoint to the catalog testers pick from ("/page/fetch"), so
+     * mock rules, failures and breakpoints can target it by name. [urlPattern]
+     * defaults to [key], matched as "URL contains" (or as a regex with
+     * [regex]); [group] defaults to the key's first path segment. Endpoints
+     * from the repo's `killcam-endpoints.json` need no call. Safe before [install].
+     */
+    @JvmStatic
+    @JvmOverloads
+    public fun registerEndpoint(
+        key: String,
+        method: String? = null,
+        name: String? = null,
+        group: String? = null,
+        description: String? = null,
+        urlPattern: String? = null,
+        regex: Boolean = false,
+    ) {
+        try {
+            endpoints.register(
+                EndpointInput(
+                    key = key, name = name, method = method, urlPattern = urlPattern,
+                    matchType = if (regex) MatchType.Regex else MatchType.Contains,
+                    group = group, description = description,
+                ),
+            )
+        } catch (e: ApiException) {
+            throw IllegalArgumentException(e.message, e)
+        }
+    }
+
+    // --------------------------------------------------------------- network --
+
+    /**
+     * Simulates a network profile for every call through [KillcamInterceptor].
+     * Persists across restarts, like the dashboard setting, until cleared.
+     */
+    @JvmStatic
+    public fun setNetworkProfile(profile: KillcamNetworkProfile) {
+        runtime?.core?.conditions?.set(NetworkConditionsInput(profile = profile.toCore()))
+    }
+
+    /** Custom network conditions. Rates are kilobits per second; 0 means unlimited. */
+    @JvmStatic
+    @JvmOverloads
+    public fun setNetworkConditions(
+        latencyMs: Long = 0,
+        jitterMs: Long = 0,
+        downloadKbps: Long = 0,
+        uploadKbps: Long = 0,
+        lossPercent: Int = 0,
+        offline: Boolean = false,
+    ) {
+        runtime?.core?.conditions?.set(
+            NetworkConditionsInput(
+                profile = NetworkProfile.Custom,
+                latencyMs = latencyMs,
+                jitterMs = jitterMs,
+                downloadKbps = downloadKbps,
+                uploadKbps = uploadKbps,
+                lossPercent = lossPercent,
+                offline = offline,
+            ),
+        )
+    }
+
+    @JvmStatic
+    public fun clearNetworkConditions() {
+        runtime?.core?.conditions?.clear()
+    }
+
+    /**
+     * Makes calls whose URL contains [urlPattern] (or matches it, with [regex])
+     * fail with [failure]. A [urlPattern] equal to a registered endpoint's key
+     * targets that endpoint (its method and match). Returns the new mock rule's
+     * id, or null before [install]. [times] limits it to the first N matching
+     * calls (0 = every call), e.g. `times = 1` to fail the first attempt and
+     * let the retry through; [probability] applies it to that percentage of
+     * calls. [dropAfterBytes] is how much body [KillcamFailure.NetworkSwitch]
+     * delivers first.
+     */
+    @JvmStatic
+    @JvmOverloads
+    public fun failRequests(
+        urlPattern: String,
+        failure: KillcamFailure,
+        method: String? = null,
+        times: Int = 0,
+        probability: Int = 100,
+        delayMs: Long = 0,
+        dropAfterBytes: Long = 0,
+        regex: Boolean = false,
+    ): String? = createMock(
+        MockRuleInput(
+            name = "Code: ${failure.name} $urlPattern",
+            method = method,
+            urlPattern = urlPattern,
+            matchType = if (regex) MatchType.Regex else MatchType.Contains,
+            action = MockAction.Fail,
+            failure = failure.toCore(),
+            delayMs = delayMs,
+            dropAfterBytes = dropAfterBytes,
+            times = times,
+            probability = probability,
+        ),
+    )
+
+    /**
+     * Answers calls whose URL contains [urlPattern] (or matches it, with
+     * [regex]), or the registered endpoint with that key, with this response
+     * instead of calling the server, e.g. a 503 or a malformed body. Returns
+     * the mock rule's id, or null before [install].
+     */
+    @JvmStatic
+    @JvmOverloads
+    public fun mockResponse(
+        urlPattern: String,
+        status: Int,
+        body: String = "",
+        headers: Map<String, String> = mapOf("Content-Type" to "application/json"),
+        method: String? = null,
+        times: Int = 0,
+        probability: Int = 100,
+        delayMs: Long = 0,
+        regex: Boolean = false,
+    ): String? = createMock(
+        MockRuleInput(
+            name = "Code: $status $urlPattern",
+            method = method,
+            urlPattern = urlPattern,
+            matchType = if (regex) MatchType.Regex else MatchType.Contains,
+            action = MockAction.Respond,
+            status = status,
+            headers = headers.map { (name, value) -> Header(name, value) },
+            body = body,
+            delayMs = delayMs,
+            times = times,
+            probability = probability,
+        ),
+    )
+
+    /** Deletes a rule made by [failRequests], [mockResponse] or the dashboard. */
+    @JvmStatic
+    public fun removeMock(id: String) {
+        runtime?.core?.mocks?.delete(id)
+    }
+
+    private fun createMock(input: MockRuleInput): String? {
+        val core = runtime?.core ?: return null
+        val isEndpoint = input.matchType == MatchType.Contains && core.endpoints.get(input.urlPattern) != null
+        return try {
+            core.mocks.create(if (isEndpoint) input.copy(endpoint = input.urlPattern) else input).id
+        } catch (e: ApiException) {
+            throw IllegalArgumentException(e.message, e)
+        }
+    }
+
     // ---------------------------------------------------------------- helpers --
+
+    private fun KillcamNetworkProfile.toCore(): NetworkProfile = when (this) {
+        KillcamNetworkProfile.Off -> NetworkProfile.Off
+        KillcamNetworkProfile.Gprs -> NetworkProfile.Gprs
+        KillcamNetworkProfile.Edge -> NetworkProfile.Edge
+        KillcamNetworkProfile.Slow3g -> NetworkProfile.Slow3g
+        KillcamNetworkProfile.Fast3g -> NetworkProfile.Fast3g
+        KillcamNetworkProfile.Lte -> NetworkProfile.Lte
+        KillcamNetworkProfile.FlakyWifi -> NetworkProfile.FlakyWifi
+        KillcamNetworkProfile.Offline -> NetworkProfile.Offline
+    }
+
+    private fun KillcamFailure.toCore(): MockFailure = when (this) {
+        KillcamFailure.Timeout -> MockFailure.Timeout
+        KillcamFailure.DnsFailure -> MockFailure.DnsFailure
+        KillcamFailure.ConnectionReset -> MockFailure.ConnectionReset
+        KillcamFailure.ConnectionRefused -> MockFailure.ConnectionRefused
+        KillcamFailure.ConnectTimeout -> MockFailure.ConnectTimeout
+        KillcamFailure.SslHandshake -> MockFailure.SslHandshake
+        KillcamFailure.NetworkSwitch -> MockFailure.NetworkSwitch
+        KillcamFailure.UnexpectedEof -> MockFailure.UnexpectedEof
+    }
 
     private fun KillcamLevel.toCore(): LogLevel = when (this) {
         KillcamLevel.Verbose -> LogLevel.Verbose

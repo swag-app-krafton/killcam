@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 real=killcam/build/tmp/kotlin-classes/debug
 noop=killcam-no-op/build/tmp/kotlin-classes/release
 status=0
-for cls in Killcam KillcamInterceptor KillcamConfig KillcamLevel KillcamFlagListener; do
+for cls in Killcam KillcamInterceptor KillcamConfig KillcamLevel KillcamFlagListener KillcamNetworkProfile KillcamFailure; do
   # Internal Kotlin members compile to public, name-mangled ($) methods; they are not API.
   signatures() { javap -public -cp "$1" "com.krafton.killcam.$cls" | grep -v '\$' | sed 's/^ *//' | sort; }
   if ! diff <(signatures "$real") <(signatures "$noop") > /tmp/killcam-api.diff; then

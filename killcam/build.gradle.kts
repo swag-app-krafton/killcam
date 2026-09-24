@@ -35,4 +35,8 @@ dependencies {
     compileOnly(libs.okhttp)
     compileOnly(libs.mmkv)
     compileOnly(libs.firebase.config)
+
+    testImplementation(kotlin("test"))
+    testImplementation(libs.junit)
+    testImplementation(libs.okhttp)
 }

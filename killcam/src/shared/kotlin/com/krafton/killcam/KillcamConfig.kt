@@ -35,6 +35,12 @@ public data class KillcamConfig @JvmOverloads constructor(
      * Pass `DEFAULT_IGNORED_LOG_TAGS + setOf("MySdk")` to extend it.
      */
     val ignoredLogTags: Set<String> = DEFAULT_IGNORED_LOG_TAGS,
+    /**
+     * Endpoint catalog read from the app's assets at install, if present: the
+     * `killcam-endpoints.json` checked into the app repo (put it under
+     * `src/debug/assets/`). Null skips it.
+     */
+    val endpointsAsset: String? = "killcam-endpoints.json",
 ) {
     public companion object {
         @JvmField

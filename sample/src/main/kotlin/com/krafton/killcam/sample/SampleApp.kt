@@ -28,6 +28,8 @@ class SampleApp : Application() {
             .build()
 
         Killcam.setInfo("Environment", "sample")
+        // Most endpoints come from src/debug/assets/killcam-endpoints.json; code can add more.
+        Killcam.registerEndpoint("/delay/3", method = "GET", name = "Slow call", group = "page")
         Killcam.registerAction("Reset onboarding", "Clears the onboarding pref", "Session") {
             getSharedPreferences("sample-startup", MODE_PRIVATE).edit().clear().apply()
             "Onboarding reset"

@@ -1,12 +1,22 @@
 package com.krafton.killcam
 
+import com.krafton.killcam.core.model.BreakOn
+import com.krafton.killcam.core.model.BreakStage
 import com.krafton.killcam.core.model.Header
 import com.krafton.killcam.core.model.HttpBody
 import com.krafton.killcam.core.model.MockAction
 import com.krafton.killcam.core.model.MockFailure
 import com.krafton.killcam.core.model.MockRule
+import com.krafton.killcam.core.model.PausedCall
+import com.krafton.killcam.core.model.RequestEdit
+import com.krafton.killcam.core.model.ResumeAction
+import com.krafton.killcam.core.mock.NetworkConditionsEngine
 import com.krafton.killcam.core.net.Bodies
 import com.krafton.killcam.internal.KillcamRuntime
+import com.krafton.killcam.internal.NetworkFaults
+import com.krafton.killcam.internal.OkHttpReplayer
+import com.krafton.killcam.internal.edited
+import com.krafton.killcam.internal.unredact
 import okhttp3.Headers
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -22,12 +32,13 @@ import okio.Sink
 import okio.Timeout
 import okio.buffer
 import java.io.IOException
-import java.net.SocketException
-import java.net.SocketTimeoutException
-import java.net.UnknownHostException
+
+/** Bodies up to this size can be edited at a response or request breakpoint. Top-level, so it stays off the public API. */
+private const val MAX_EDITABLE_BYTES = 1024L * 1024
 
 /**
- * Captures OkHttp traffic for the Network panel and applies mock rules.
+ * Captures OkHttp traffic for the Network panel and applies mock rules and
+ * the simulated network conditions (latency, bandwidth, loss, offline).
  *
  * Add it as an **application** interceptor (`addInterceptor`, not
  * `addNetworkInterceptor`) so mocks short-circuit before any I/O and bodies
@@ -45,9 +56,13 @@ public class KillcamInterceptor @JvmOverloads constructor(
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val runtime = Killcam.runtime ?: return chain.proceed(chain.request())
-        val request = chain.request()
+        if (runtime.core.replayer == null) runtime.core.replayer = OkHttpReplayer
+        // A repeat started from the dashboard: apply its edit to the request as this point sees it.
+        val ticket = OkHttpReplayer.ticket(chain.call())
+        var request = ticket?.edit?.let { chain.request().edited(it) } ?: chain.request()
         val url = request.url.toString()
         val store = runtime.core.store
+        val network = runtime.core.conditions.plan()
         val mock = runtime.core.mocks.match(request.method, url)
         val limit = runtime.config.maxBodyBytes
 
@@ -58,21 +73,41 @@ public class KillcamInterceptor @JvmOverloads constructor(
             requestHeaders = headers(request.headers, runtime),
             requestBody = requestBody,
             requestSize = requestSize,
-            source = source,
+            source = if (ticket != null) "repeat" else source,
             mockRuleId = mock?.id,
         )
+        if (id != null) OkHttpReplayer.remember(id, chain.call())
 
         try {
+            // The simulated network comes first: offline or a lost packet fails
+            // even a mocked call, and latency delays it, as on a real phone.
+            if (network != null) {
+                NetworkFaults.pause(chain.call(), network.delayMs)
+                network.failure?.let { throw NetworkFaults.exception(it, request.url) }
+            }
+            var dropAfterBytes: Long? = null
+            var breakOnResponse = false
             if (mock != null) {
-                pause(chain, mock.delayMs)
+                NetworkFaults.pause(chain.call(), mock.delayMs)
                 when (mock.action) {
-                    MockAction.Respond -> return respond(request, mock, id, runtime)
-                    MockAction.Fail -> throw failure(mock.failure)
+                    MockAction.Respond -> return shape(respond(request, mock, id, runtime), network, null, id, runtime)
+                    MockAction.Fail ->
+                        if (mock.failure == MockFailure.NetworkSwitch) dropAfterBytes = mock.dropAfterBytes
+                        else throw NetworkFaults.exception(mock.failure, request.url)
                     MockAction.Delay -> Unit
+                    MockAction.Breakpoint -> {
+                        if (mock.breakOn != BreakOn.Response) request = breakAtRequest(chain, request, mock, id, runtime)
+                        breakOnResponse = mock.breakOn != BreakOn.Request
+                    }
                 }
             }
-            val response = chain.proceed(request)
-            if (id == null) return response
+            val outgoing = request.body
+                ?.takeIf { network != null && network.uploadBytesPerSecond > 0 }
+                ?.let { request.newBuilder().method(request.method, NetworkFaults.throttle(it, network!!.uploadBytesPerSecond)).build() }
+                ?: request
+            var response = chain.proceed(outgoing)
+            if (breakOnResponse) response = breakAtResponse(chain, response, mock!!, id, runtime)
+            if (id == null) return shape(response, network, dropAfterBytes, null, runtime)
             val body = response.body
             val contentType = body?.contentType()?.toString() ?: response.header("Content-Type")
             store.completeCall(
@@ -85,15 +120,18 @@ public class KillcamInterceptor @JvmOverloads constructor(
                 responseSize = body?.contentLength()?.coerceAtLeast(0) ?: 0,
             )
             if (body == null) return response
-            if (body.contentLength() == 0L) {
+            if (body.contentLength() == 0L && dropAfterBytes == null) {
                 store.completeBody(id, Bodies.decode(ByteArray(0), 0, false, contentType))
                 return response
             }
             val encoding = response.header("Content-Encoding")
-            val capturing = CapturingBody(body, limit) { bytes, total, truncated ->
+            // Innermost first: the drop cuts the real stream, capture records what the app got,
+            // the throttle paces what the app reads.
+            val source = dropAfterBytes?.let { n -> NetworkFaults.dropAfter(body, n) { store.failCall(id, it) } } ?: body
+            val capturing = CapturingBody(source, limit) { bytes, total, truncated ->
                 store.completeBody(id, Bodies.decode(bytes, total, truncated, contentType, encoding))
             }
-            return response.newBuilder().body(capturing).build()
+            return response.newBuilder().body(throttled(capturing, network)).build()
         } catch (e: IOException) {
             id?.let { store.failCall(it, e) }
             throw e
@@ -102,6 +140,100 @@ public class KillcamInterceptor @JvmOverloads constructor(
             throw e
         }
     }
+
+    /** Holds the request for a tester; returns it as they left it, or throws the failure they chose. */
+    private fun breakAtRequest(chain: Interceptor.Chain, request: Request, mock: MockRule, id: String?, runtime: KillcamRuntime): Request {
+        val (text, editable) = editableRequestBody(request)
+        val resume = runtime.core.breakpoints.pause({ pausedId, at, deadline ->
+            PausedCall(
+                id = pausedId, callId = id, ruleId = mock.id, ruleName = mock.name, stage = BreakStage.Request,
+                pausedMs = at, deadlineMs = deadline, method = request.method, url = request.url.toString(),
+                requestHeaders = headers(request.headers, runtime), requestBody = text, requestBodyEditable = editable,
+                status = null, responseHeaders = emptyList(), responseBody = null, responseBodyEditable = false,
+            )
+        }) { chain.call().isCanceled() } ?: throw IOException("Canceled")
+        if (resume.action == ResumeAction.Fail) throw NetworkFaults.exception(resume.failure, request.url)
+        val edit = RequestEdit(resume.method, resume.url, resume.headers, resume.body?.takeIf { editable })
+        if (edit == RequestEdit()) return request
+        val edited = request.edited(edit)
+        if (id != null) {
+            val (body, size) = captureRequest(edited, runtime.config.maxBodyBytes)
+            runtime.core.store.editRequest(id, edited.method, edited.url.toString(), headers(edited.headers, runtime), body, size)
+        }
+        return edited
+    }
+
+    /** Holds the response before the app sees it; returns it as the tester left it, or throws the failure they chose. */
+    private fun breakAtResponse(chain: Interceptor.Chain, response: Response, mock: MockRule, id: String?, runtime: KillcamRuntime): Response {
+        val body = response.body
+        val encoded = response.header("Content-Encoding")?.let { !it.equals("identity", ignoreCase = true) } == true
+        val peeked = if (body == null) ByteArray(0) else runCatching { response.peekBody(MAX_EDITABLE_BYTES + 1).bytes() }.getOrDefault(ByteArray(0))
+        val tooBig = peeked.size > MAX_EDITABLE_BYTES
+        val shown = Bodies.decode(
+            if (tooBig) peeked.copyOf(MAX_EDITABLE_BYTES.toInt()) else peeked, peeked.size.toLong(), tooBig,
+            body?.contentType()?.toString(), response.header("Content-Encoding"),
+        ).text
+        val editable = !tooBig && !encoded && shown != null
+        val resume = runtime.core.breakpoints.pause({ pausedId, at, deadline ->
+            PausedCall(
+                id = pausedId, callId = id, ruleId = mock.id, ruleName = mock.name, stage = BreakStage.Response,
+                pausedMs = at, deadlineMs = deadline, method = response.request.method, url = response.request.url.toString(),
+                requestHeaders = headers(response.request.headers, runtime), requestBody = null, requestBodyEditable = false,
+                status = response.code, responseHeaders = headers(response.headers, runtime), responseBody = shown,
+                responseBodyEditable = editable,
+            )
+        }) { chain.call().isCanceled() }
+        if (resume == null || resume.action == ResumeAction.Fail) {
+            response.close()
+            throw if (resume == null) IOException("Canceled") else NetworkFaults.exception(resume.failure, response.request.url)
+        }
+        if (resume.status == null && resume.headers == null && (resume.body == null || !editable)) return response
+        val builder = response.newBuilder()
+        resume.status?.let { builder.code(it).message(REASONS[it] ?: "Edited") }
+        var headers = resume.headers?.let { unredact(it, response.headers) } ?: response.headers
+        val newBody = resume.body
+        if (newBody != null && editable) {
+            headers = headers.newBuilder().removeAll("Content-Length").removeAll("Content-Encoding").build()
+            val type = headers["Content-Type"]?.toMediaTypeOrNull() ?: body?.contentType()
+            body?.close()
+            builder.body(newBody.toResponseBody(type))
+        }
+        return builder.headers(headers).build()
+    }
+
+    /** A request body as text a tester can edit: (text, editable). One-shot, binary and large bodies are view-only or hidden. */
+    private fun editableRequestBody(request: Request): Pair<String?, Boolean> {
+        val body = request.body ?: return null to (request.method !in setOf("GET", "HEAD"))
+        if (body.isOneShot() || body.isDuplex()) return null to false
+        if (body.contentLength() > MAX_EDITABLE_BYTES) return null to false
+        val buffer = Buffer()
+        runCatching { body.writeTo(buffer) }.onFailure { return null to false }
+        val size = buffer.size
+        if (size > MAX_EDITABLE_BYTES) return null to false
+        val encoding = request.header("Content-Encoding")
+        val text = Bodies.decode(buffer.readByteArray(), size, false, body.contentType()?.toString(), encoding).text
+        return text to (text != null && encoding == null)
+    }
+
+    /** Applies a mid-body drop and the download throttle to a response Killcam is not capturing. */
+    private fun shape(
+        response: Response,
+        network: NetworkConditionsEngine.Plan?,
+        dropAfterBytes: Long?,
+        id: String?,
+        runtime: KillcamRuntime,
+    ): Response {
+        var body = response.body ?: return response
+        if (dropAfterBytes != null) {
+            body = NetworkFaults.dropAfter(body, dropAfterBytes) { e -> id?.let { runtime.core.store.failCall(it, e) } }
+        }
+        val shaped = throttled(body, network)
+        return if (shaped === response.body) response else response.newBuilder().body(shaped).build()
+    }
+
+    private fun throttled(body: ResponseBody, network: NetworkConditionsEngine.Plan?): ResponseBody =
+        if (network != null && network.downloadBytesPerSecond > 0) NetworkFaults.throttle(body, network.downloadBytesPerSecond)
+        else body
 
     private fun respond(request: Request, mock: MockRule, id: String?, runtime: KillcamRuntime): Response {
         val contentType = mock.headers.firstOrNull { it.name.equals("Content-Type", true) }?.value ?: "application/json"
@@ -130,27 +262,10 @@ public class KillcamInterceptor @JvmOverloads constructor(
             .build()
     }
 
-    /** Sleeps for a mock's delay, but gives up promptly if the call is cancelled. */
-    private fun pause(chain: Interceptor.Chain, delayMs: Long) {
-        var remaining = delayMs
-        while (remaining > 0) {
-            if (chain.call().isCanceled()) throw IOException("Canceled")
-            val step = minOf(remaining, 100)
-            Thread.sleep(step)
-            remaining -= step
-        }
-    }
-
-    private fun failure(kind: MockFailure): IOException = when (kind) {
-        MockFailure.Timeout -> SocketTimeoutException("timeout (Killcam mock)")
-        MockFailure.NoNetwork -> UnknownHostException("Unable to resolve host (Killcam mock: no network)")
-        MockFailure.ConnectionReset -> SocketException("Connection reset (Killcam mock)")
-    }
-
     private fun headers(headers: Headers, runtime: KillcamRuntime): List<Header> =
         (0 until headers.size).map { i ->
             val name = headers.name(i)
-            Header(name, if (name.lowercase() in runtime.redactedHeaders) "██ redacted" else headers.value(i))
+            Header(name, if (name.lowercase() in runtime.redactedHeaders) OkHttpReplayer.REDACTED else headers.value(i))
         }
 
     private fun captureRequest(request: Request, limit: Long): Pair<HttpBody?, Long> {

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "endpoints": [
+    {
+      "key": "/anything/v1/upi/pay",
+      "name": "UPI pay",
+      "method": "POST",
+      "group": "payments",
+      "description": "Submits a UPI payment"
+    },
+    {
+      "key": "/json",
+      "name": "Home feed",
+      "method": "GET",
+      "group": "page",
+      "description": "Loads the home page JSON"
+    },
+    {
+      "key": "/post",
+      "name": "Sync data",
+      "method": "POST",
+      "group": "data",
+      "description": "Background data sync"
+    },
+    {
+      "key": "/image/png",
+      "name": "Banner image",
+      "group": "media"
+    }
+  ]
+}

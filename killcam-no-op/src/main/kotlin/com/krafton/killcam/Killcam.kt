@@ -117,4 +117,59 @@ public object Killcam {
 
     @JvmStatic @JvmOverloads @Suppress("UNUSED_PARAMETER")
     public fun registerAction(label: String, description: String? = null, group: String? = null, action: () -> String?): Unit = Unit
+
+    @JvmStatic @JvmOverloads @Suppress("UNUSED_PARAMETER")
+    public fun registerEndpoint(
+        key: String,
+        method: String? = null,
+        name: String? = null,
+        group: String? = null,
+        description: String? = null,
+        urlPattern: String? = null,
+        regex: Boolean = false,
+    ): Unit = Unit
+
+    @JvmStatic @Suppress("UNUSED_PARAMETER")
+    public fun setNetworkProfile(profile: KillcamNetworkProfile): Unit = Unit
+
+    @JvmStatic @JvmOverloads @Suppress("UNUSED_PARAMETER")
+    public fun setNetworkConditions(
+        latencyMs: Long = 0,
+        jitterMs: Long = 0,
+        downloadKbps: Long = 0,
+        uploadKbps: Long = 0,
+        lossPercent: Int = 0,
+        offline: Boolean = false,
+    ): Unit = Unit
+
+    @JvmStatic
+    public fun clearNetworkConditions(): Unit = Unit
+
+    @JvmStatic @JvmOverloads @Suppress("UNUSED_PARAMETER")
+    public fun failRequests(
+        urlPattern: String,
+        failure: KillcamFailure,
+        method: String? = null,
+        times: Int = 0,
+        probability: Int = 100,
+        delayMs: Long = 0,
+        dropAfterBytes: Long = 0,
+        regex: Boolean = false,
+    ): String? = null
+
+    @JvmStatic @JvmOverloads @Suppress("UNUSED_PARAMETER")
+    public fun mockResponse(
+        urlPattern: String,
+        status: Int,
+        body: String = "",
+        headers: Map<String, String> = mapOf("Content-Type" to "application/json"),
+        method: String? = null,
+        times: Int = 0,
+        probability: Int = 100,
+        delayMs: Long = 0,
+        regex: Boolean = false,
+    ): String? = null
+
+    @JvmStatic @Suppress("UNUSED_PARAMETER")
+    public fun removeMock(id: String): Unit = Unit
 }

@@ -9,7 +9,15 @@ import com.krafton.killcam.core.model.DeepLinkRequest
 import com.krafton.killcam.core.model.FlagUpdate
 import com.krafton.killcam.core.model.LabelRequest
 import com.krafton.killcam.core.model.MmkvUpdate
+import com.krafton.killcam.core.endpoints.EndpointRegistry
+import com.krafton.killcam.core.mock.NetworkConditionsEngine
+import com.krafton.killcam.core.model.EndpointCatalog
+import com.krafton.killcam.core.model.EndpointInput
 import com.krafton.killcam.core.model.MockRuleInput
+import com.krafton.killcam.core.model.NetworkConditionsInput
+import com.krafton.killcam.core.model.RepeatRequest
+import com.krafton.killcam.core.model.RepeatResult
+import com.krafton.killcam.core.model.ResumeRequest
 import com.krafton.killcam.core.model.PinRequest
 import com.krafton.killcam.core.model.PrefEntry
 import com.krafton.killcam.core.model.SqlRequest
@@ -200,6 +208,14 @@ internal class KillcamServer(private val core: KillcamCore) {
         apiGet("/api/network/{id}") {
             call.respondJson(core.store.networkCall(call.param("id")) ?: notFound("call"))
         }
+        apiPost("/api/network/{id}/repeat") {
+            val request = call.receiveJsonOrNull<RepeatRequest>() ?: RepeatRequest()
+            if (request.count !in 1..50) throw ApiException(400, "count must be 1..50")
+            core.store.networkCall(call.param("id")) ?: notFound("call")
+            val replayer = core.replayer ?: throw ApiException(409, "not_repeatable: no call has gone through KillcamInterceptor yet")
+            val started = io { replayer.repeat(call.param("id"), request) }
+            call.respondJson(RepeatResult(started))
+        }
         apiGet("/api/network/{id}/curl") {
             val networkCall = core.store.networkCall(call.param("id")) ?: notFound("call")
             call.respondText(Curl.of(networkCall), ContentType.Text.Plain)
@@ -264,10 +280,46 @@ internal class KillcamServer(private val core: KillcamCore) {
             if (!core.mocks.delete(call.param("id"))) notFound("mock rule")
             call.noContent()
         }
+        apiPost("/api/mocks/{id}/reset") { call.respondJson(core.mocks.resetHits(call.param("id"))) }
         apiPut("/api/mocks") {
             // Reorder: body is the full list of rule ids in the new order.
             core.mocks.reorder(call.receiveJson<List<String>>())
             call.respondJson(core.mocks.list())
+        }
+
+        // ---- network conditions
+        apiGet("/api/network-conditions") { call.respondJson(core.conditions.get()) }
+        apiGet("/api/network-conditions/presets") { call.respondJson(NetworkConditionsEngine.PRESETS) }
+        apiPut("/api/network-conditions") {
+            call.respondJson(core.conditions.set(call.receiveJson<NetworkConditionsInput>()))
+        }
+        apiDelete("/api/network-conditions") { call.respondJson(core.conditions.clear()) }
+
+        // ---- endpoint catalog
+        apiGet("/api/endpoints") { call.respondJson(core.endpoints.list()) }
+        apiPost("/api/endpoints") { call.respondJson(core.endpoints.put(call.receiveJson<EndpointInput>())) }
+        apiPut("/api/endpoints") { call.respondJson(core.endpoints.put(call.receiveJson<EndpointInput>())) }
+        apiDelete("/api/endpoints") {
+            val key = call.request.queryParameters["key"] ?: throw ApiException(400, "key is required")
+            if (!core.endpoints.delete(key)) notFound("dashboard endpoint")
+            call.noContent()
+        }
+        apiGet("/api/endpoints/export") {
+            if (call.request.queryParameters["download"] == "1") call.attachment(EndpointRegistry.CATALOG_FILE)
+            // Pretty and stable, so the committed file diffs cleanly.
+            call.response.header(HttpHeaders.CacheControl, "no-store")
+            call.respondText(PrettyJson.encodeToString(EndpointCatalog.serializer(), core.endpoints.export()) + "\n", ContentType.Application.Json)
+        }
+
+        // ---- breakpoints
+        apiGet("/api/breakpoints") { call.respondJson(core.breakpoints.list()) }
+        apiPost("/api/breakpoints/resume-all") {
+            core.breakpoints.resumeAll()
+            call.noContent()
+        }
+        apiPost("/api/breakpoints/{id}") {
+            core.breakpoints.resume(call.param("id"), call.receiveJsonOrNull<ResumeRequest>() ?: ResumeRequest())
+            call.noContent()
         }
 
         // ---- flags
@@ -530,6 +582,12 @@ internal class KillcamServer(private val core: KillcamCore) {
     }
 
     private companion object {
+        /** Only for files meant to be committed (the endpoint catalog); the wire stays compact. */
+        val PrettyJson = kotlinx.serialization.json.Json(KillcamJson) {
+            prettyPrint = true
+            encodeDefaults = false
+            explicitNulls = false
+        }
         const val PORT_ATTEMPTS = 10
         const val HEARTBEAT_MS = 15_000L
         const val WEB_ROOT = "killcam-web"
