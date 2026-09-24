@@ -9,7 +9,7 @@ These are the long write-ups. The live list, with status and priority for every 
 ## The dashboard rebuilt on swagperf's design system
 
 **Tracker:** F-001 (swagperf F-015)
-**Status:** in progress. Step 1 is committed on the local branch `feature/network-fault-injection` as `da88e16`, and is also in the `main` working tree. Steps 2 and 3 were being written in the `main` working tree at 16:19 on 2026-09-24.
+**Status:** in progress. The rebuild is committed to `main` as `44ec8e0` (2026-09-24 16:54). `da88e16`, an earlier snapshot of step 1 on the F-002 branch, was dropped when that branch was rebased onto `44ec8e0`.
 **Raised:** 2026-09-24
 
 ### What
@@ -53,7 +53,7 @@ Killcam's dashboard is rebuilt from swagperf's design system and shell conventio
 
 ### Shape of the work
 
-1. Shell: `AppShell`, `Sidebar`, `TopBar`, `PageHeader`, `SessionPicker`, `SessionDetails`, `PinScreen`, `Embed` and `actions.ts`. This is done in `da88e16`.
+1. Shell: `AppShell`, `Sidebar`, `TopBar`, `PageHeader`, `SessionPicker`, `SessionDetails`, `PinScreen`, `Embed` and `actions.ts`. This is done in `44ec8e0`.
 2. Logs, Network and Replay (the phone frame, player, banded scrubber and event feed).
 3. Crashes, Mocks, Flags and Remote Config.
 4. Storage, Sessions, Actions and Session details.
@@ -84,13 +84,10 @@ These were found by reading the working tree at 16:12; recheck each one against 
 
 ---
 
-## Network conditions, fault injection, endpoint catalog, repeat and breakpoints
+## Network conditions, fault injection, endpoint catalogue, repeat and breakpoints
 
 **Tracker:** F-002
-**Status:** built on the local branch `feature/network-fault-injection`, in the worktree `~/Documents/killcam-network-faults`. Not merged, not pushed. Commits:
-- `1822bcc`, 16:16: Kotlin, server and tests;
-- `ad624f0`, 16:24: dashboard, `types.ts`, mock server and a rebuilt bundle;
-- `0a5ea3e`, 16:25: README and API.md.
+**Status:** ✅ merged into `main` on 2026-09-24 as a fast-forward: `d2448a5` (plan), `1b6d521` (Kotlin, server and tests), `190c042` (README and API.md) and `ac1b09f` (dashboard and bundle). The branch was rebased onto `44ec8e0` first, and its dashboard rebuilt on the design system.
 **Raised:** 2026-09-24
 **Plan:** `docs/plans/network-faults.md` on that branch (requirements R1–R8, scenarios S1–S20)
 
@@ -105,15 +102,15 @@ These were found by reading the working tree at 16:12; recheck each one against 
   - `times`: apply to the first N matches only;
   - `probability`: apply to a share of calls;
   - a re-arm action that resets a rule's hits.
-- **API-error templates (R4):** dashboard only; not built.
+- **API-error templates (R4):** in the dashboard only: 500, 503 and 429 with `Retry-After`, 401, an HTML 502, a 504 after 30 s, malformed JSON and an empty 200.
 - **Programmatic API (R5):**
   - `Killcam.setNetworkProfile`, `setNetworkConditions`, `clearNetworkConditions`, `failRequests`, `mockResponse`, `removeMock` and `registerEndpoint`;
   - `/api/network-conditions` (GET, PUT, DELETE) and `/api/network-conditions/presets`;
   - `POST /api/mocks/{id}/reset`.
-- **Endpoint catalog (R6):**
+- **Endpoint catalogue (R6):**
   - The app's APIs by name. Sources are merged by key, later winning: `killcam-endpoints.json` shipped as a debug asset, `Killcam.registerEndpoint`, and testers' additions.
   - Endpoints: `/api/endpoints` and `/api/endpoints/export`.
-  - `scripts/pull-endpoints.sh` writes the catalog back into the app's repository for a PR. The phone never holds GitHub credentials.
+  - `scripts/pull-endpoints.sh` writes the catalogue back into the app's repository for a PR. The phone never holds GitHub credentials.
 - **Repeat (R7):**
   - `POST /api/network/{id}/repeat` re-sends a captured call through the app's own OkHttp client, 1 to 50 times, one after another or all at once, as it was or edited.
   - The last 300 calls can be repeated. Saved sessions can't.
@@ -139,27 +136,25 @@ Testers need to reproduce the bugs that only happen on bad networks: a payment s
 - **Wire compatibility:** new rule fields have defaults, so an old `mocks.json` still loads.
 - **No-op:** every new public call has a no-op, and `check-noop-api.sh` covers the new enums (`KillcamNetworkProfile`, `KillcamFailure`).
 
-### What was built on the branch
+### What was built
 
 - **The Kotlin side:** the API, server routes, `killcam-core` tests, and an Android `NetworkFaultsTest` for the OkHttp fault helpers.
-- **The dashboard** (`ad624f0`), on the **old** pages, styled through `legacy.css`:
-  - **Mocks** gains a network-conditions card (presets, or custom latency, bandwidth, loss and offline). It also gains the new failure kinds, API-error templates, "When" limits (the first N calls, a share of calls, re-arm), a Breakpoint action, and rules that target a catalog endpoint.
-  - **A new Endpoints page** (Run group, code `EP`) lists the catalog by group with each endpoint's source, calls and errors. It discovers uncovered paths in traffic, and exports `killcam-endpoints.json`.
-  - **Network** warns while conditions are on, and can repeat a call: edited, N times, or all at once.
-  - **Breakpoints:** a bar on every page shows the paused calls, with an editor to continue or fail each one.
-- **The contract:** `types.ts`, the mock server, a rebuilt bundle (`index-DfzeE_Zz.js`), README sections ("Simulating bad networks", "The endpoint catalog") and API.md, including curl recipes for test automation.
+- **The dashboard** (`ac1b09f`), on the design system and `kit/`:
+  - **Mocks** gains the Network conditions card (presets, or custom latency, jitter, bandwidth, loss and offline), the new failure kinds with what each reproduces, API-error templates, a "When" section (the first N calls, a share of calls, re-arm), a Breakpoint action, and rules that target a catalogue endpoint.
+  - **A new Endpoints page** (Run group, code `EP`) lists the catalogue by group with each endpoint's source, calls and errors. It lists uncovered paths seen in traffic, and exports `killcam-endpoints.json`. The in-app window shows compact cards.
+  - **Network's call detail** can repeat a call: edited, N times, one after another or all at once.
+  - **The shell** warns on every page but Mocks while conditions are on, and lists paused calls in a bar with an editor to continue, edit or fail each one.
+- **The contract:** `types.ts`, the mock server, a rebuilt bundle, README sections ("Simulating bad networks", "The endpoint catalogue") and API.md, including curl recipes for test automation.
 
 ### What is left
 
-- **Merge into `main`.** `main`'s working tree is rebuilding the same pages on the design system (F-001), and the branch changed `MocksPanel.tsx`, `NetworkPanel.tsx`, `NetworkDetail.tsx`, `legacy.css`, `routes.ts` and the bundle. Decide the order: merge the branch first and rebuild its pages as part of F-001, or rebuild first and port the branch's UI onto the new pages. Either way, rebuild the bundle once, after the merge.
-- **Interceptor tests against MockWebServer**, if the Android `NetworkFaultsTest` doesn't already cover throttling, drops, repeat and breakpoints end to end. The plan lists them, and `okhttp-mockwebserver` is in the version catalog.
+- **Interceptor tests in the repository.** Eighteen tests against MockWebServer (throttling, drops, DNS-once-then-retry, repeat, breakpoints) passed on 2026-09-24, but they compile the interceptor against a stub `Killcam`, because `KillcamInterceptor` reads `Killcam.runtime`, which needs an `Application`. A seam that lets a test supply the runtime would bring them in (T-004).
 - **A run on a phone** with the sample app, the only app that makes HTTP calls (T-003). Swag Pay needs F-005 first.
 
 ### Watch-outs
 
 - **Repeat** sends real requests with the app's own auth and interceptors. On a payment API that means real double-submits. The plan calls this intended (scenario S16).
 - **A breakpoint** blocks the app's calling thread for up to 120 s. A call made on the main thread would freeze the app, so the UI should warn about that.
-- The branch also carries `da88e16` (F-001, step 1). When merging, reconcile it with the dashboard work in the `main` working tree.
 - Measurements taken while conditions are on are meaningless for performance (see F-004).
 
 ---

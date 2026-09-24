@@ -16,7 +16,7 @@ Built first for **Swag Pay**.
 |---|---|
 | **Network** | Every OkHttp/Ktor call: headers, bodies (JSON tree, images), timing, cURL, HAR export, "Mock this" |
 | **Mocks** | Network throttling (2G, 3G, flaky Wi-Fi, offline, custom). Rules that return canned responses or API errors, add delay, fail calls the way real networks do (DNS failure, a network switch mid-download, connection refused, TLS), or pause them at a breakpoint to edit. Rules can fire once or only on a share of calls. Everything persists across restarts |
-| **Endpoints** | The app's APIs by name (`/page/fetch`, `/data/sync`), from a catalog file in the app repo, code and testers; target them with rules, discover new ones in traffic, export them back to the repo |
+| **Endpoints** | The app's APIs by name (`/page/fetch`, `/data/sync`), from a catalogue file in the app repo, code and testers; target them with rules, discover new ones in traffic, export them back to the repo |
 | **Logs** | `Killcam.log`, analytics events and the app's own logcat (including React Native `console.log`) |
 | **Crashes** | Fatal and non-fatal, with app frames highlighted and a "Watch killcam" link into the replay |
 | **Replay** | Screenshots, taps, screen changes, network and logs on one timeline, plus a player |
@@ -174,7 +174,7 @@ Conditions and rules survive restarts. While conditions are on, a banner in Netw
 and every change is marked on the replay timeline. Only OkHttp traffic through the
 interceptor is affected; WebViews and other HTTP stacks see the real network.
 
-### The endpoint catalog
+### The endpoint catalogue
 
 Testers pick "which API" from a list instead of typing URL patterns. The list lives in the
 app repo, so every build and every tester shares it:
@@ -254,7 +254,7 @@ docs/API.md       HTTP API; dashboard/src/api/types.ts is the wire contract
 ./gradlew :killcam-core:test          # server, security, sessions, mocks, flags
 ./gradlew :killcam-core:demo          # real server + simulated Swag Pay session on :8090
 ./scripts/check-noop-api.sh           # killcam and killcam-no-op expose the same API
-./scripts/pull-endpoints.sh <file>    # writes the device's endpoint catalog into the app repo
+./scripts/pull-endpoints.sh <file>    # writes the device's endpoint catalogue into the app repo
 ./gradlew :sample:installDebug        # demo app on a device
 
 cd dashboard && npm run mock          # dashboard against a Node mock of the API

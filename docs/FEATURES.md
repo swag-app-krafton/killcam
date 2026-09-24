@@ -6,7 +6,7 @@ A reference for everything Killcam does: what each feature gives you, how it wor
 
 **When it was written.** 2026-09-24, about 16:30 IST. Sources:
 - `main` at `b474131`;
-- the local branch `feature/network-fault-injection` at `0a5ea3e`;
+- the local branch `feature/network-fault-injection` at `0a5ea3e` (section 8, the in-flight table and the commit timeline were updated at about 17:10 from `main` at `44ec8e0` and F-002's merge, `ac1b09f`);
 - the `main` working tree at that time;
 - the transcripts of the sessions that built Killcam that day.
 
@@ -54,7 +54,7 @@ Another session was rebuilding `dashboard/` while this was written (F-001), so d
 5. [Network capture](#5-network-capture)
 6. [cURL and HAR export](#6-curl-and-har-export)
 7. [Mocks](#7-mocks)
-8. [Network conditions, fault injection, endpoint catalog, repeat and breakpoints](#8-network-conditions-fault-injection-endpoint-catalog-repeat-and-breakpoints)
+8. [Network conditions, fault injection, endpoint catalogue, repeat and breakpoints](#8-network-conditions-fault-injection-endpoint-catalogue-repeat-and-breakpoints)
 9. [Logs](#9-logs)
 10. [Crashes](#10-crashes)
 
@@ -173,14 +173,15 @@ Each decision below has its reason and the alternatives that were turned down. T
 
 ## What is in flight
 
-As of 2026-09-24, about 16:30 IST:
+As of 2026-09-24, about 17:10 IST:
 
 | Work | Where | State |
 |---|---|---|
-| Dashboard rebuilt on swagperf's design system (F-001) | Step 1 is in `da88e16` on `feature/network-fault-injection`. Steps 2–3 are in the `main` working tree. | 🚧 Another session is working on it. |
-| Network conditions, fault injection, endpoint catalog, repeat and breakpoints (F-002) | `1822bcc`, `ad624f0` and `0a5ea3e` on `feature/network-fault-injection` (worktree `~/Documents/killcam-network-faults`) | 🌿 Built: Kotlin, dashboard (on the old pages), contract, mock server and docs. Not merged; conflicts are expected with F-001. |
+| Dashboard rebuilt on swagperf's design system (F-001) | `44ec8e0` on `main` | ✅ Committed and pushed. F-001 stays in progress in the tracker until its remaining checks (the real server and the vivo) are done. |
 | Swag Pay integration | Worktree `~/Documents/swag-pay-killcam`, branch `killcam-integration` | 🚧 Uncommitted. |
-| `main` doesn't build (B-001), and phones load a stale bundle (B-002) | `main` | Fixed on the branch and in the working tree; not on `main`. |
+| `main` doesn't build (B-001), and phones load a stale bundle (B-002) | `main` | `44ec8e0` commits the missing shell and a rebuilt bundle, and the dashboard typechecks there. Both rows stay open in the tracker for a developer to close. |
+
+F-002 (network conditions, fault injection, endpoint catalogue, repeat and breakpoints) was merged into `main` on 2026-09-24; see section 8.
 
 ---
 
@@ -422,70 +423,67 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
   - T-004.
   - "Mock this" makes exact-URL rules, so calls with changing query strings won't match again.
 
-## 8. Network conditions, fault injection, endpoint catalog, repeat and breakpoints
+## 8. Network conditions, fault injection, endpoint catalogue, repeat and breakpoints
 
-- **Status:** 🌿 `feature/network-fault-injection`, not merged:
-  - `1822bcc`: Kotlin, server and tests;
-  - `ad624f0`: dashboard, `types.ts`, mock server and bundle;
-  - `0a5ea3e`: README and API.md.
+- **Status:** ✅ on `main`, merged 2026-09-24 as a fast-forward: `d2448a5` (plan), `1b6d521` (Kotlin, server and tests), `190c042` (README and API.md) and `ac1b09f` (dashboard and bundle). The branch `feature/network-fault-injection` was rebased onto `44ec8e0` first, and its dashboard rebuilt on the design system.
 - **What it gives you:**
   - A simulated slow, lossy or offline network for every intercepted call.
   - Failures thrown the way Android throws them.
   - Rules that fail only the first N calls, or a share of calls.
-  - The app's APIs picked by name.
+  - The app's APIs picked by name from a catalogue that lives in the app repo.
   - Repeating a captured request.
   - Pausing a call to edit it before it is sent, or before the app reads the response.
 - **How it works:**
   - **Conditions** (`core/mock/NetworkConditionsEngine.kt`):
-    - `plan()` decides per call: offline gives a DNS failure; loss gives a timeout or reset at random; latency plus random jitter; download and upload caps;
-    - the interceptor sleeps, throttles (okio) and throws;
-    - conditions are persisted like mocks, and every change adds a timeline event such as "Network: Slow 3G".
+    - `plan()` decides per call: offline gives a DNS failure; loss gives a read timeout or a connection reset at random; latency plus random jitter; download and upload caps;
+    - the interceptor sleeps (cancellable), throttles the bodies (okio `Throttler`, in chunks of about 100 ms of data) and throws;
+    - conditions are persisted like mocks, and every change adds a timeline event such as "Network: Slow 3G". Conditions left on from the last run are logged at startup and marked on the timeline.
   - **Presets:**
 
     | Preset | Latency | Jitter | Down / up | Loss |
     |---|---|---|---|---|
     | GPRS | 500 ms | 200 ms | 50 / 20 kbps | 2% |
     | 2G (EDGE) | 300 ms | 100 ms | 250 / 50 kbps | 1% |
-    | Slow 3G | 400 ms | 100 ms | 400 / 400 kbps | 0 |
-    | Fast 3G | 150 ms | 50 ms | 1,600 / 750 kbps | 0 |
-    | 4G | 50 ms | 20 ms | 12,000 / 6,000 kbps | 0 |
+    | Slow 3G | 400 ms | 100 ms | 400 / 400 kbps | 0% |
+    | Fast 3G | 150 ms | 50 ms | 1,600 / 750 kbps | 0% |
+    | 4G | 50 ms | 20 ms | 12,000 / 6,000 kbps | 0% |
     | Flaky Wi-Fi | 80 ms | 600 ms | 2,000 / 1,000 kbps | 10% |
-    | Offline | — | — | — | every call fails DNS |
+    | Offline | – | – | – | every call fails DNS |
 
-  - **Failures** (`KillcamFailure`): `Timeout`, `DnsFailure`, `ConnectionReset`, `ConnectionRefused`, `ConnectTimeout`, `SslHandshake`, `NetworkSwitch` (the real call goes out, then the body aborts after `dropAfterBytes`) and `UnexpectedEof`.
-  - **Rule fields:** `times` (apply to the first N matches; 0 means always), `probability` (1–100), `dropAfterBytes`, `endpoint`, and a re-arm that resets hits.
-  - **Endpoint catalog** (`core/endpoints/EndpointRegistry.kt`):
-    - sources are merged by key, later winning: `killcam-endpoints.json` as a debug asset (`KillcamConfig.endpointsAsset`), `Killcam.registerEndpoint`, and the dashboard;
-    - export to a file, and `scripts/pull-endpoints.sh` writes it into the app's repository.
+  - **Failures** (`KillcamFailure`; `android/internal/NetworkFaults.kt`): `Timeout`, `DnsFailure`, `ConnectionReset`, `ConnectionRefused`, `ConnectTimeout`, `SslHandshake`, `NetworkSwitch` (the real call goes out, then the body aborts after `dropAfterBytes` with "Software caused connection abort") and `UnexpectedEof` (worded with OkHttp's own redacted URL).
+  - **Rule fields:** `times` (apply to the first N matches; 0 means always), `probability` (1–100%), `dropAfterBytes`, `endpoint`, `breakOn`, and a re-arm that resets hits.
+  - **Endpoint catalogue** (`core/endpoints/EndpointRegistry.kt`):
+    - sources are merged by key, later winning: `killcam-endpoints.json` as a debug asset (`KillcamConfig.endpointsAsset`, read at install by `KillcamRuntime.loadEndpointCatalog`), `Killcam.registerEndpoint`, and the dashboard;
+    - a rule with `endpoint` copies that endpoint's method, pattern and match type;
+    - export writes the merged catalogue in the repo file's format, and `scripts/pull-endpoints.sh` writes it into the app's repository.
   - **Repeat** (`android/internal/OkHttpReplayer.kt`):
-    - `Call.clone()` through the app's own client, so auth, interceptors, mocks and conditions apply;
-    - 1–50 times, one after another or all at once, as it was or edited;
+    - `Call.clone()` through the app's own client, so auth, interceptors, mocks, conditions and breakpoints apply; an edit is applied inside `KillcamInterceptor`, so headers added by earlier interceptors are kept;
+    - 1–50 calls, one after another or all at once, as captured or edited;
     - captured with source `repeat`.
-  - **Breakpoints** (`core/mock/BreakpointManager.kt`): the app's thread blocks until a tester resumes the call, the call is cancelled, or 120 s pass. After 120 s it continues unchanged.
-  - **In the dashboard** (on the old pages, styled through `legacy.css`):
-    - **Mocks** gains a network-conditions card, the new failure kinds, API-error templates (500, 503 with `Retry-After`, 429, 401 `token_expired`, an HTML 502, malformed JSON, an empty body, a 504 after 30 s), "When" limits (the first N calls, a share of calls, re-arm), a Breakpoint action, and rules that target an endpoint.
-    - **Endpoints** is a new page in the Run group (code `EP`). It lists the catalog by group with each endpoint's source, calls and errors, lists discovered paths that no endpoint covers (with ids collapsed, as in `/v1/transactions/*`), and has Export.
-    - **Network** shows a warning while conditions are on, and adds Repeat (edited, N times, or all at once).
-    - **A breakpoint bar** on every page lists paused calls, each with an editor to continue or fail it.
-- **Code:** `core/mock/NetworkConditionsEngine.kt`, `core/mock/BreakpointManager.kt`, `core/endpoints/EndpointRegistry.kt`, `core/net/CallReplayer.kt`; `android/internal/NetworkFaults.kt`, `android/internal/OkHttpReplayer.kt`; `shared/KillcamNetwork.kt`; `android/KillcamInterceptor.kt` (reworked); `dash/panels/NetworkConditionsCard.tsx`, `EndpointsPanel.tsx`, `BreakpointTray.tsx`, `RepeatDialog.tsx`, `MocksPanel.tsx`; `dash/lib/endpoints.ts`; `scripts/pull-endpoints.sh`. All on the branch.
-- **API:** `Killcam.setNetworkProfile(KillcamNetworkProfile)`; `setNetworkConditions(latencyMs, jitterMs, downloadKbps, uploadKbps, lossPercent, offline)`; `clearNetworkConditions()`; `failRequests(urlPattern, failure, method?, times, …)`, for example with `dropAfterBytes` for `NetworkSwitch`; `mockResponse(urlPattern, status, body, headers, …)`, for example with `probability`; `removeMock(id)`; `registerEndpoint(key, method?, name?, group?, …)`. `failRequests` and `mockResponse` return the new rule's id. Config: `KillcamConfig.endpointsAsset` (default `"killcam-endpoints.json"`). The README's "Simulating bad networks" section on the branch has the scenario table. HTTP:
+  - **Breakpoints** (`core/mock/BreakpointManager.kt`): the app's thread blocks until a tester resumes the call, the call is cancelled, or 120 s pass, when it continues unchanged.
+  - **In the dashboard** (on the design system and `kit/`):
+    - **Mocks** (`panels/MocksPanel.tsx`, `panels/NetworkConditions.tsx`) has the Network conditions card at the top, the new failure kinds with what each reproduces, API-error templates (500; 503 with `Retry-After: 30`; 429 with `Retry-After: 10`; 401 `token_expired`; an HTML 502; a 504 after 30 s; malformed JSON; an empty 200), a "When" section (the first N calls, a share of calls, re-arm), a Breakpoint action, and an Endpoint choice that fixes the method and pattern.
+    - **Endpoints** (`panels/EndpointsPanel.tsx`) is a page in the Run group (code `EP`): one table per group with each endpoint's source, calls and errors, and Fail…, Mock…, Breakpoint… and Edit; up to 30 paths seen in traffic that no endpoint covers, with ids collapsed as in `/v1/transactions/*`; Export with Copy and Download. The in-app window shows compact cards.
+    - **The shell** (`shell/AppShell.tsx`) shows a warning banner on every page but Mocks while conditions are on, and a banner listing calls held at breakpoints (`panels/BreakpointTray.tsx`), whose editor opens by itself.
+    - **Network's call detail** adds Repeat beside Mock this (`panels/RepeatDialog.tsx`).
+- **Code:** `core/mock/NetworkConditionsEngine.kt`, `core/mock/BreakpointManager.kt`, `core/endpoints/EndpointRegistry.kt`, `core/net/CallReplayer.kt`; `android/internal/NetworkFaults.kt`, `android/internal/OkHttpReplayer.kt`; `shared/KillcamNetwork.kt`; `android/KillcamInterceptor.kt`; `dash/panels/NetworkConditions.tsx`, `EndpointsPanel.tsx`, `BreakpointTray.tsx`, `RepeatDialog.tsx`, `MocksPanel.tsx`, `NetworkDetail.tsx`; `dash/shell/AppShell.tsx`; `dash/lib/endpoints.ts`; `scripts/pull-endpoints.sh`; `sample/src/debug/assets/killcam-endpoints.json`.
+- **API:** `Killcam.setNetworkProfile(KillcamNetworkProfile)`; `setNetworkConditions(latencyMs, jitterMs, downloadKbps, uploadKbps, lossPercent, offline)`; `clearNetworkConditions()`; `failRequests(urlPattern, failure, method?, times, probability, delayMs, dropAfterBytes, regex)`; `mockResponse(urlPattern, status, body, headers, method?, times, probability, delayMs, regex)`; `removeMock(id)`; `registerEndpoint(key, method?, name?, group?, description?, urlPattern?, regex)`. `failRequests` and `mockResponse` return the new rule's id, or null before `install`; a `urlPattern` equal to a registered endpoint's key targets that endpoint. Config: `KillcamConfig.endpointsAsset` (default `"killcam-endpoints.json"`). HTTP:
   - `GET`, `PUT` and `DELETE /api/network-conditions`, and `GET /api/network-conditions/presets`;
   - `POST /api/mocks/{id}/reset`;
   - `GET`, `POST`, `PUT` and `DELETE /api/endpoints`, and `GET /api/endpoints/export`;
   - `POST /api/network/{id}/repeat`;
   - `GET /api/breakpoints`, `POST /api/breakpoints/{id}` and `POST /api/breakpoints/resume-all`.
+  - Live events: `conditions`, `endpoints` and `breakpoints`.
 - **Limits:**
-  - latency and jitter 0–60,000 ms;
-  - loss 0–100%;
-  - repeat count 1–50;
-  - the last 300 calls can be repeated;
+  - latency and jitter 0–60,000 ms; loss 0–100%;
+  - repeat count 1–50; the last 300 calls can be repeated (`OkHttpReplayer.MAX_REMEMBERED`);
   - a breakpoint times out after 120,000 ms, polled every 200 ms;
-  - a response edited at a breakpoint can be up to 1 MB (from the plan; not found in code).
-- **Survives a restart:** conditions and rules. Endpoints added from the dashboard are kept on the phone and flagged "not in repo yet".
-- **Security:** Repeat sends real requests with the app's credentials. A breakpoint on a main-thread call freezes the app.
-- **Checked on:** unit tests; mock server (the dashboard). Not on a phone.
-- **Tests:** `core-test/NetworkFaultsTest.kt`, `core-test/EndpointsAndBreakpointsTest.kt`, additions to `core-test/ServerTest.kt`; `killcam/src/test/kotlin/com/krafton/killcam/internal/NetworkFaultsTest.kt`, the first test in the `killcam` module. All on the branch.
-- **Open items:** F-002 (merge conflicts with F-001; a phone run), T-003. Remaining work is in [BACKLOG](BACKLOG.md#network-conditions-fault-injection-endpoint-catalog-repeat-and-breakpoints).
+  - a request or response body edited at a breakpoint can be up to 1 MiB (`MAX_EDITABLE_BYTES`, `KillcamInterceptor.kt`); compressed, binary and one-shot bodies are view-only.
+- **Survives a restart:** conditions (`files/killcam/network-conditions.json`), rules (`files/killcam/mocks.json`) and endpoints added from the dashboard (`files/killcam/endpoints.json`), which are flagged "Not in repo" until exported and committed.
+- **Security:** Repeat sends real requests with the app's credentials; a header sent back as "██ redacted" is replaced by its real value on the phone, so the dashboard never sees it. A breakpoint on a main-thread call freezes the app for up to 120 s.
+- **Checked on:** unit tests; mock server (the dashboard on desktop and in `?embed=1`), 2026-09-24. Not on a phone.
+- **Tests:** `core-test/NetworkFaultsTest.kt` (11 tests), `core-test/EndpointsAndBreakpointsTest.kt` (6), `core-test/ServerTest.kt` (`networkConditionsAndRuleResetOverHttp`, `endpointCatalogBreakpointsAndRepeatOverHttp`); `killcam/src/test/kotlin/com/krafton/killcam/internal/NetworkFaultsTest.kt` (4). Eighteen interceptor tests against MockWebServer (throttling, drops, DNS-once-then-retry, repeat, breakpoints) passed on 2026-09-24 but live outside the repository, because `KillcamInterceptor` reads `Killcam.runtime`, which needs an `Application` (T-004).
+- **Open items:** T-003 (a phone run), T-004 (a seam so the interceptor tests can live in the repository). Remaining work is in [BACKLOG](BACKLOG.md#network-conditions-fault-injection-endpoint-catalogue-repeat-and-breakpoints).
 
 ## 9. Logs
 
@@ -1023,7 +1021,7 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
 
 ## 27. Dashboard shell
 
-- **Status:** ✅ `b474131` (the old shell, which doesn't typecheck: B-001). 🚧 the new shell: `da88e16` on the branch, and the `main` working tree.
+- **Status:** ✅ `b474131` (the old shell, which doesn't typecheck: B-001). ✅ the new shell: `44ec8e0`.
 - **What it gives you:** navigation, the session picker, the live connection, capture controls, the theme, keyboard shortcuts, the PIN screen, and three layouts: desktop, phone (`?embed=1`) and DevTools (`?embed=devtools`).
 - **How it works:**
   - **Routing** is by hash: `#/<page>/<segments>?focus=<id>`. An unknown page goes home, which is Replay on the desktop and Logs on the phone. Selecting in a list replaces the history entry, so it doesn't stack.
@@ -1234,8 +1232,8 @@ These pages present features described above: calls in section 5, logs in sectio
   - **Vite dev** (`npm run dev`, :5173) proxies `/api` to `KILLCAM_URL`. It keeps `Host: localhost:5173`, which the phone accepts, and passes SSE through unbuffered.
 - **Code:** `core-test/demo/DemoServer.kt`, `core-test/demo/FakePlatform.kt`, `killcam-core/build.gradle.kts:33-39`; `dashboard/dev/mock-server.mjs`, `dashboard/dev/fake-native.js`, `dashboard/vite.config.ts`.
 - **Checked on:** both were used to check every page in headless Chrome.
-- **Notes:** the demo only uses a mock rule's status and body. On the branch (`ad624f0`), the mock server implements F-002's endpoints too.
-- **Open items:** F-002, T-001 (the watch-out that the mocks must follow any new access rule).
+- **Notes:** the demo only uses a mock rule's status and body. The mock server implements F-002's endpoints too (`ac1b09f`).
+- **Open items:** T-001 (the watch-out that the mocks must follow any new access rule).
 
 ## 34. Swag Pay integration
 
@@ -1376,8 +1374,10 @@ See T-004.
 |---|---|---|---|
 | `68325b8` | `main` | 2026-09-24 12:02 | Initial commit (README only) |
 | `b474131` | `main` (pushed) | 2026-09-24 15:22 | Killcam v1: every module, the dashboard sources and a stale built bundle, docs, scripts and the Rozenite plugin. 255 files. The dashboard doesn't typecheck (B-001). |
-| `da88e16` | `feature/network-fault-injection` (local) | 2026-09-24 16:07 | The dashboard shell missing from `b474131`, and a rebuilt bundle (F-001 step 1, B-001, B-002) |
-| `10bed46` | `feature/network-fault-injection` (local) | 2026-09-24 16:08 | Plan: `docs/plans/network-faults.md` |
-| `1822bcc` | `feature/network-fault-injection` (local) | 2026-09-24 16:16 | Network conditions, failure injection, endpoint catalog, repeat and breakpoints: Kotlin, server and tests (F-002) |
-| `ad624f0` | `feature/network-fault-injection` (local) | 2026-09-24 16:24 | F-002's dashboard: the conditions card, failure rules, the Endpoints page, Repeat, the breakpoint bar; `types.ts`, the mock server, a rebuilt bundle |
-| `0a5ea3e` | `feature/network-fault-injection` (local) | 2026-09-24 16:25 | README and API.md for F-002 |
+| `44ec8e0` | `main` (pushed) | 2026-09-24 16:54 | The dashboard rebuilt on swagperf's design system, and the product-manager setup (F-001, B-001, B-002) |
+| `d2448a5` | `feature/network-fault-injection`, merged into `main` | 2026-09-24 16:08 | Plan: `docs/plans/network-faults.md` (F-002) |
+| `1b6d521` | `feature/network-fault-injection`, merged into `main` | 2026-09-24 16:16 | Network conditions, failure injection, endpoint catalogue, repeat and breakpoints: Kotlin, server and tests (F-002) |
+| `190c042` | `feature/network-fault-injection`, merged into `main` | 2026-09-24 16:25 | README and API.md for F-002 |
+| `ac1b09f` | `feature/network-fault-injection`, merged into `main` | 2026-09-24 17:08 | F-002's dashboard on the design system: the conditions card, failure rules, the Endpoints page, Repeat, the breakpoint bar; `types.ts`, the mock server, a rebuilt bundle |
+
+The branch's first commits (`da88e16`, `10bed46`, `1822bcc`, `ad624f0`, `0a5ea3e`) were replaced when it was rebased onto `44ec8e0` at about 17:00; `da88e16`, a snapshot of the shell, was dropped because `44ec8e0` commits it.

@@ -267,7 +267,7 @@ Parked, revisit?
   - Never show status by colour alone.
   - Every number has its unit. Write "not measured" or "–" instead of a made-up 0.
   - Say "RAM usage", never "RSS".
-  - Use these names in prose: "Killcam" for the product; "the dashboard"; "the in-app window"; "the bubble"; "live session", "saved session" and "crash session"; "bug bundle"; "mark a moment". Page names match the dashboard's navigation: Replay, Network, Logs, Crashes, Mocks, Flags, Remote Config, Actions, Endpoints (on the F-002 branch), Sessions, Storage, and the Session details dialog, which replaced the Device page.
+  - Use these names in prose: "Killcam" for the product; "the dashboard"; "the in-app window"; "the bubble"; "live session", "saved session" and "crash session"; "bug bundle"; "mark a moment". Page names match the dashboard's navigation: Replay, Network, Logs, Crashes, Mocks, Flags, Remote Config, Actions, Endpoints, Sessions, Storage, and the Session details dialog, which replaced the Device page.
 - **Bash:** read-only commands only.
   - For git: `git log`, `git show`, `git --no-optional-locks status`, `git branch`, `git worktree list` and `git diff`.
   - For reading, when no Read or Grep tool is available: `ls`, `grep`, `find`, `sed -n` and `wc`.
