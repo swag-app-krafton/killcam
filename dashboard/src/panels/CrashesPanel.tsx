@@ -1,198 +1,134 @@
 import { useMemo, useState } from 'react';
-import { api, enc, errorMessage } from '../api/client';
+import { EmptyState, ExpandableTable, FlushCard, Grid, KpiTile, Segmented, Stack, Text, type ExpandableColumn } from '@/design';
 import { liveStore } from '../api/live';
-import type { Crash, CrashSummary } from '../api/types';
-import { Icon } from '../components/Icon';
-import { SplitView } from '../components/SplitView';
-import { StackTrace } from '../components/StackTrace';
-import { CopyButton, EmptyState, IconButton, Loading, Segmented } from '../components/ui';
-import { fmtAgo, fmtClock, fmtDateTime, shortClass } from '../lib/format';
-import { listStep, useAsync, useHotkeys } from '../lib/hooks';
-import { focusReplay } from '../state/app';
+import type { CrashSummary } from '../api/types';
+import { fmt, fmtAgo, fmtDateTime, shortClass } from '../lib/format';
+import { appStore } from '../state/app';
 import { navigate, routePath, useRoute } from '../state/router';
-import { sessionKeyFor, useSessionView, type SessionView } from '../state/session';
+import { useSessionView } from '../state/session';
 import { useStore } from '../state/store';
+import { CrashBody, FatalPill } from './crashDetail';
 
 type Filter = 'all' | 'fatal' | 'nonfatal';
 
-/** The first app frame, e.g. "PayFlowViewModel.kt:212", to name the culprit. */
-function blame(stack: string): string | null {
-  const m = /at\s+com\.swag\.[\w.$]+\(([^)]+)\)/.exec(stack);
-  return m ? m[1] : null;
-}
-
-export function watchKillcam(crash: CrashSummary, view: SessionView): void {
-  const key = view.kind === 'live' ? sessionKeyFor(crash.sessionId) : view.key;
-  focusReplay(key, crash.ts, true);
-  navigate('replay');
-}
-
+/** Crashes, after swagperf's Stability page: tiles, then a table whose rows
+ *  open on the stack. */
 export function CrashesPanel() {
   const view = useSessionView();
   const route = useRoute();
-  const liveId = useStore(liveStore, (s) => s.sessionId);
+  const embed = useStore(appStore, (x) => x.embed);
+  const liveId = useStore(liveStore, (x) => x.sessionId);
   const [filter, setFilter] = useState<Filter>('all');
-  const selectedId = route.parts[0] ?? null;
-  const rows = useMemo(
-    () => view.crashes.filter((c) => (filter === 'all' ? true : filter === 'fatal' ? c.fatal : !c.fatal)),
-    [view.crashes, filter],
-  );
-  const selIndex = rows.findIndex((c) => c.id === selectedId);
-  const selected = view.crashes.find((c) => c.id === selectedId) ?? null;
-  const select = (c: CrashSummary | undefined) => c && navigate(routePath('crashes', c.id), { replace: !!selectedId });
-  const close = () => navigate('crashes');
-  useHotkeys({
-    j: () => select(listStep(rows, selIndex, 1)),
-    ArrowDown: () => select(listStep(rows, selIndex, 1)),
-    k: () => select(listStep(rows, selIndex, -1)),
-    ArrowUp: () => select(listStep(rows, selIndex, -1)),
-    Escape: () => selectedId && close(),
-  });
+  const openId = route.parts[0] ?? null;
+  const rows = useMemo(() => view.crashes.filter((c) => (filter === 'all' ? true : filter === 'fatal' ? c.fatal : !c.fatal)), [view.crashes, filter]);
+  const fatal = view.crashes.filter((c) => c.fatal);
+  const nonFatal = view.crashes.length - fatal.length;
+  const here = (c: CrashSummary) => view.kind === 'saved' || c.sessionId === liveId;
+  const last = view.crashes[0] ?? null;
 
-  const sessionLabel = (c: CrashSummary) =>
-    view.kind === 'saved' ? 'This session' : c.sessionId === liveId ? 'This session' : 'Previous session';
+  if (view.status === 'loading' && !view.crashes.length) return <EmptyState>Loading crashes…</EmptyState>;
+  if (!view.crashes.length) {
+    return (
+      <EmptyState title="No crashes recorded">
+        {view.kind === 'live'
+          ? 'Fatal crashes, and the errors the app records with Killcam.recordException(), appear here, from this session and earlier ones. A crash also saves its session, so it can be replayed.'
+          : 'Nothing crashed in this saved session.'}
+      </EmptyState>
+    );
+  }
 
-  const list = (
-    <div className="list-pane">
-      <div className="toolbar">
-        <Segmented<Filter>
-          label="Crash filter"
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { value: 'all', label: `All ${view.crashes.length}` },
-            { value: 'fatal', label: 'Fatal' },
-            { value: 'nonfatal', label: 'Non-fatal' },
-          ]}
-        />
-        <span className="grow" />
-        <span className="count muted">{view.kind === 'live' ? 'This session and earlier ones' : 'Saved session'}</span>
-      </div>
-      {view.status === 'loading' && !view.crashes.length ? (
-        <Loading />
-      ) : rows.length === 0 ? (
-        <EmptyState icon="skull" title={view.crashes.length ? 'Nothing matches this filter' : 'No crashes. GG.'}>
-          {view.crashes.length ? null : 'Fatal crashes and recorded non-fatals from this and earlier sessions show up here.'}
-        </EmptyState>
-      ) : (
-        <div className="crash-list scroll" role="listbox" aria-label="Crashes">
-          {rows.map((c) => (
-            <button
-              type="button"
-              key={c.id}
-              role="option"
-              aria-selected={c.id === selectedId}
-              className={['crash-item', c.fatal ? 'fatal' : 'nonfatal', c.id === selectedId ? 'sel' : ''].join(' ')}
-              onClick={() => (c.id === selectedId ? close() : select(c))}
-            >
-              <span className="crash-icon">
-                <Icon name={c.fatal ? 'skull' : 'bug'} size={18} />
-              </span>
-              <span className="crash-main">
-                <span className="crash-ex">{shortClass(c.exception)}</span>
-                <span className="crash-msg">{c.message ?? c.exception}</span>
-                <span className="crash-meta">
-                  <span className={c.fatal ? 'badge badge-fatal' : 'badge badge-nonfatal'}>{c.fatal ? 'FATAL' : 'NON-FATAL'}</span>
-                  <span className={sessionLabel(c) === 'This session' ? 'badge' : 'badge badge-dim'}>{sessionLabel(c)}</span>
-                  {c.screen && <span className="muted">on {c.screen}</span>}
-                </span>
-              </span>
-              <span className="crash-when tnum" title={fmtDateTime(c.ts, true)}>
-                {fmtAgo(c.ts)}
-              </span>
-            </button>
-          ))}
-        </div>
+  const columns: ExpandableColumn[] = embed
+    ? [
+        { key: 'ex', label: 'Exception', width: 'minmax(0, 1fr)' },
+        { key: 'fatal', label: 'Kind', width: '96px' },
+      ]
+    : [
+        { key: 'when', label: 'When', width: '130px' },
+        { key: 'ex', label: 'Exception', width: 'minmax(220px, 2fr)' },
+        { key: 'fatal', label: 'Kind', width: '110px' },
+        { key: 'session', label: 'Session', width: '150px' },
+        { key: 'screen', label: 'Screen', width: 'minmax(130px, 1fr)' },
+      ];
+
+  return (
+    <Stack as="section" gap={20}>
+      {!embed && (
+        <Grid min={180} gap={12}>
+          <KpiTile label="Fatal crashes" help="The app's process died on an uncaught exception." value={fmt(fatal.length)} note={`${fmt(fatal.filter(here).length)} in ${view.kind === 'live' ? 'this session' : 'the session in view'}`} />
+          <KpiTile label="Non-fatal errors" help="Exceptions the app caught and recorded with Killcam.recordException()." value={fmt(nonFatal)} />
+          <KpiTile label="Sessions with a crash" help="Distinct app sessions that ended in a fatal crash." value={fmt(new Set(fatal.map((c) => c.sessionId)).size)} />
+          <KpiTile label="Latest" value={last ? fmtAgo(last.ts) : null} note={last ? `${shortClass(last.exception)} · ${fmtDateTime(last.ts)}` : undefined} />
+        </Grid>
       )}
-    </div>
-  );
-
-  return (
-    <div className="panel">
-      <SplitView
-        storageKey="crashes"
-        initial={0.6}
-        open={!!selected}
-        list={list}
-        detail={selected && <CrashDetail key={selected.id} crash={selected} view={view} onClose={close} sessionLabel={sessionLabel(selected)} />}
-      />
-    </div>
-  );
-}
-
-export function CrashDetail({
-  crash,
-  view,
-  onClose,
-  sessionLabel,
-  hideWatch,
-}: {
-  crash: CrashSummary;
-  view: SessionView;
-  onClose: () => void;
-  sessionLabel?: string;
-  hideWatch?: boolean;
-}) {
-  const saved = view.fullCrashes?.find((c) => c.id === crash.id) ?? null;
-  const { data, error, loading } = useAsync<Crash | null>(
-    (signal) => (saved ? Promise.resolve(saved) : api.get<Crash>(`crashes/${enc(crash.id)}`, undefined, signal)),
-    [crash.id, saved],
-  );
-  const culprit = data ? blame(data.stackTrace) : null;
-  return (
-    <div className="detail">
-      <div className="detail-head">
-        <IconButton icon="back" label="Close detail" onClick={onClose} className="detail-back" />
-        <span className={crash.fatal ? 'crash-head-icon fatal' : 'crash-head-icon'}>
-          <Icon name={crash.fatal ? 'skull' : 'bug'} size={18} />
-        </span>
-        <div className="detail-title">
-          <b>{shortClass(crash.exception)}</b>
-        </div>
-        {data && <CopyButton text={data.stackTrace} label="Copy stack trace" />}
-        {!hideWatch && (
-          <button type="button" className="btn primary sm" onClick={() => watchKillcam(crash, view)} title="Replay the moments before this crash">
-            <Icon name="replay" size={14} />
-            <span>Watch killcam</span>
-          </button>
-        )}
-        <IconButton icon="x" label="Close detail (Esc)" onClick={onClose} className="detail-close" />
-      </div>
-      <div className="detail-body">
-        <div className="crash-summary">
-          <div className="mono crash-fqcn">{crash.exception}</div>
-          {crash.message && <div className="crash-message">{crash.message}</div>}
-          <div className="crash-facts">
-            <span className={crash.fatal ? 'badge badge-fatal' : 'badge badge-nonfatal'}>{crash.fatal ? 'FATAL' : 'NON-FATAL'}</span>
-            {sessionLabel && <span className="badge">{sessionLabel}</span>}
-            <span>
-              <Icon name="clock" size={13} /> {fmtDateTime(crash.ts)} · {fmtClock(crash.ts)}
-            </span>
-            <span>
-              thread <b className="mono">{crash.thread}</b>
-            </span>
-            {crash.screen && (
-              <span>
-                screen <b>{crash.screen}</b>
-              </span>
-            )}
-            {culprit && (
-              <span>
-                blamed frame <b className="mono text-accent">{culprit}</b>
-              </span>
-            )}
+      <FlushCard
+        title="Crashes and errors"
+        hint={view.kind === 'live' ? 'This session and earlier ones, newest first. Open a row for its stack; the app’s own frames are marked.' : 'From the saved session, newest first.'}
+        aside={
+          <Segmented<Filter>
+            label="Kind"
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: 'all', label: `All · ${fmt(view.crashes.length)}` },
+              { value: 'fatal', label: `Fatal · ${fmt(fatal.length)}` },
+              { value: 'nonfatal', label: `Non-fatal · ${fmt(nonFatal)}` },
+            ]}
+          />
+        }
+      >
+        {rows.length === 0 ? (
+          <div style={{ padding: 24 }}>
+            <Text variant="body">Nothing of this kind.</Text>
           </div>
-        </div>
-        {loading && !data ? (
-          <Loading />
-        ) : error ? (
-          <EmptyState icon="warning" tone="error" title="Could not load the stack trace">
-            {errorMessage(error)}
-          </EmptyState>
-        ) : data ? (
-          <StackTrace text={data.stackTrace} />
-        ) : null}
-      </div>
-    </div>
+        ) : (
+          <ExpandableTable
+            label="Crashes"
+            minWidth={embed ? 0 : 760}
+            columns={columns}
+            rows={rows}
+            rowKey={(c) => c.id}
+            rowAttrs={(c) => ({ 'data-hl': `crash:${c.id}` })}
+            toggleLabel={(c) => `${shortClass(c.exception)} at ${fmtDateTime(c.ts, true)}`}
+            openKey={openId}
+            onToggle={(k) => navigate(openId === k ? 'crashes' : routePath('crashes', k), { replace: true })}
+            cells={(c) =>
+              embed
+                ? [
+                    <Stack key="e" gap={2}>
+                      <Text variant="body" tone="primary" weight={600} truncate>
+                        {shortClass(c.exception)}
+                      </Text>
+                      <Text variant="meta" truncate>
+                        {fmtAgo(c.ts)} · {c.screen ?? 'no screen'}
+                      </Text>
+                    </Stack>,
+                    <FatalPill key="f" fatal={c.fatal} />,
+                  ]
+                : [
+                    <Text key="w" variant="small" nowrap title={fmtDateTime(c.ts, true)}>
+                      {fmtAgo(c.ts)}
+                    </Text>,
+                    <Stack key="e" gap={2}>
+                      <Text variant="body" tone="primary" weight={600} truncate>
+                        {shortClass(c.exception)}
+                      </Text>
+                      <Text variant="meta" truncate>
+                        {c.message ?? c.exception}
+                      </Text>
+                    </Stack>,
+                    <FatalPill key="f" fatal={c.fatal} />,
+                    <Text key="s" variant="small">
+                      {here(c) ? 'This session' : 'An earlier session'}
+                    </Text>,
+                    <Text key="sc" variant="small" truncate>
+                      {c.screen ?? '–'}
+                    </Text>,
+                  ]
+            }
+            detail={(c) => <CrashBody crash={c} view={view} />}
+          />
+        )}
+      </FlushCard>
+    </Stack>
   );
 }

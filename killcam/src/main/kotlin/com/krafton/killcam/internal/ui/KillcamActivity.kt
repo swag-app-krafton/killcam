@@ -22,6 +22,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.window.OnBackInvokedDispatcher
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.krafton.killcam.Killcam
@@ -60,8 +61,22 @@ internal class KillcamActivity : Activity() {
         applyInsets(root)
         setContentView(root)
         setChrome(BG, lightBackground = false)
+        registerBack()
         rt.whenServerReady { loadDashboard() }
         maybeAskForNotifications()
+    }
+
+    /**
+     * Back steps through the dashboard's own history first: every sheet,
+     * dialog and full-screen pane it opens pushes an entry. Apps targeting
+     * Android 16 never get onBackPressed() (predictive back is always on), so
+     * from Android 13 the callback is registered with the dispatcher instead.
+     */
+    private fun registerBack() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
+            if (web.canGoBack()) web.goBack() else finish()
+        }
     }
 
     @Deprecated("Deprecated in Java")

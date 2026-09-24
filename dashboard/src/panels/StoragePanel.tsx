@@ -1,28 +1,38 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  Badge,
+  Banner,
+  Button,
+  EmptyState,
+  FlushCard,
+  Kbd,
+  Row,
+  SearchInput,
+  Segmented,
+  SelectField,
+  SortTh,
+  Spacer,
+  Stack,
+  Table,
+  TableEmptyRow,
+  Text,
+  TextAreaField,
+  numCell,
+} from '@/design';
 import { api, apiUrl, enc, errorMessage, isUnavailable } from '../api/client';
-import type {
-  Cell,
-  DbInfo,
-  FileEntry,
-  FileRoot,
-  MmkvEntry,
-  MmkvInstance,
-  MmkvValueType,
-  PrefEntry,
-  PrefFile,
-  PrefType,
-  QueryResult,
-} from '../api/types';
-import { Icon } from '../components/Icon';
-import { JsonTree, tryParseJson } from '../components/JsonTree';
-import { SplitView } from '../components/SplitView';
-import { CopyButton, EmptyState, IconButton, Loading, Modal, SearchInput, Segmented, Switch, Tabs } from '../components/ui';
-import { fmtBytes, fmtDateTime, looksLikeEpochMs } from '../lib/format';
+import type { Cell, DbInfo, FileEntry, FileRoot, MmkvEntry, MmkvInstance, MmkvValueType, PrefEntry, PrefFile, PrefType, QueryResult } from '../api/types';
+import { ConsoleBlock, ConsolePre, JsonBlock, hexDump, tryParseJson } from '../kit/console';
+import { IconBtn, SelectInput, TextInput } from '../kit/controls';
+import { ValueEditor, validateValue, type ValueType } from '../kit/editors';
+import { KIcon } from '../kit/Icon';
+import { Dock, KDialog } from '../kit/overlays';
+import { fmt, fmtBytes, fmtDateTime, looksLikeEpochMs, plural } from '../lib/format';
 import { useAsync } from '../lib/hooks';
 import { appStore } from '../state/app';
 import { navigate, routePath, useRoute } from '../state/router';
 import { useStore } from '../state/store';
 import { confirmDialog, toast } from '../state/ui';
+import s from './Storage.module.css';
 
 type Sub = 'prefs' | 'mmkv' | 'db' | 'files';
 
@@ -30,772 +40,471 @@ export function StoragePanel() {
   const route = useRoute();
   const p0 = route.parts[0];
   const sub: Sub = p0 === 'db' || p0 === 'files' || p0 === 'mmkv' ? p0 : 'prefs';
+  const embed = useStore(appStore, (x) => x.embed);
   return (
-    <div className="panel storage">
-      <Tabs<Sub>
+    <Stack as="section" gap={20}>
+      <div style={{ maxWidth: '100%', overflowX: 'auto' }}>
+      <Segmented<Sub>
+        label="Store"
         value={sub}
-        onChange={(s) => navigate(routePath('storage', s))}
-        tabs={[
-          { id: 'prefs', label: 'Shared prefs' },
-          { id: 'mmkv', label: 'MMKV' },
-          { id: 'db', label: 'Databases' },
-          { id: 'files', label: 'Files' },
+        onChange={(x) => navigate(routePath('storage', x))}
+        options={[
+          { value: 'prefs', label: embed ? 'Shared prefs' : 'Shared preferences' },
+          { value: 'mmkv', label: 'MMKV' },
+          { value: 'db', label: 'Databases' },
+          { value: 'files', label: 'Files' },
         ]}
       />
-      <div className="storage-body">
-        {sub === 'prefs' ? (
-          <PrefsView file={route.parts[1] ?? null} />
-        ) : sub === 'mmkv' ? (
-          <MmkvView id={route.parts[1] ?? null} />
-        ) : sub === 'db' ? (
-          <DbView db={route.parts[1] ?? null} table={route.parts[2] ?? null} />
-        ) : (
-          <FilesView root={route.parts[1] ?? null} path={route.parts.slice(2).join('/')} />
-        )}
       </div>
-    </div>
+      {sub === 'prefs' ? (
+        <PrefsView file={route.parts[1] ?? null} />
+      ) : sub === 'mmkv' ? (
+        <MmkvView id={route.parts[1] ?? null} />
+      ) : sub === 'db' ? (
+        <DbView db={route.parts[1] ?? null} table={route.parts[2] ?? null} />
+      ) : (
+        <FilesView root={route.parts[1] ?? null} path={route.parts.slice(2).join('/')} />
+      )}
+    </Stack>
   );
 }
 
-function Unavailable({ what, error }: { what: string; error: unknown }) {
-  if (isUnavailable(error)) {
-    return (
-      <EmptyState icon="lock" title={`${what} aren't available in this build`}>
-        The app didn't give Killcam access to its {what.toLowerCase()} (<span className="mono">{(error as { code: string }).code}</span>). Everything else keeps
-        working.
-      </EmptyState>
-    );
-  }
+const UNAVAILABLE: Record<string, { title: string; body: ReactNode }> = {
+  prefs: { title: 'Shared preferences are not available in this build', body: 'The app did not give Killcam access to its SharedPreferences.' },
+  databases: { title: 'Databases are not available in this build', body: 'The app did not give Killcam access to its SQLite databases.' },
+  files: { title: 'Files are not available in this build', body: 'The app did not give Killcam access to its sandbox.' },
+  mmkv: {
+    title: 'MMKV is not available in this build',
+    body: (
+      <>
+        Native MMKV needs com.tencent:mmkv in the app, plus Killcam.registerMmkv(id, cryptKey) for every instance other than the default: Killcam never opens a store it was
+        not given the key for. react-native-mmkv stores are inspected with Rozenite’s storage plugin in React Native DevTools.
+      </>
+    ),
+  },
+};
+
+function LoadError({ what, error, onRetry }: { what: keyof typeof UNAVAILABLE; error: unknown; onRetry?: () => void }) {
+  if (isUnavailable(error)) return <EmptyState title={UNAVAILABLE[what].title}>{UNAVAILABLE[what].body}</EmptyState>;
   return (
-    <EmptyState icon="warning" tone="error" title={`Could not load ${what.toLowerCase()}`}>
+    <EmptyState title="Could not load this store" actions={onRetry && <Button variant="outline" onClick={onRetry}>Try again</Button>}>
       {errorMessage(error)}
     </EmptyState>
   );
 }
 
-// ================================================================== prefs ==
-
-function PrefsView({ file }: { file: string | null }) {
-  const files = useAsync((s) => api.get<PrefFile[]>('prefs', undefined, s), []);
-  useEffect(() => {
-    if (!file && files.data?.length) navigate(routePath('storage', 'prefs', files.data[0].name), { replace: true });
-  }, [file, files.data]);
-  if (files.error) return <Unavailable what="Shared preferences" error={files.error} />;
-  if (!files.data) return <Loading />;
-  if (!files.data.length) return <EmptyState icon="key" title="No SharedPreferences files" />;
+function StoreItem({ current, onClick, name, meta, sub, icon }: { current: boolean; onClick: () => void; name: ReactNode; meta?: ReactNode; sub?: boolean; icon: string }) {
   return (
-    <div className="master-detail">
-      <nav className="md-list" aria-label="Preference files">
-        {files.data.map((f) => (
-          <button
-            type="button"
-            key={f.name}
-            className={f.name === file ? 'md-item sel' : 'md-item'}
-            onClick={() => navigate(routePath('storage', 'prefs', f.name), { replace: true })}
-          >
-            <Icon name="key" size={14} />
-            <span className="md-name mono">{f.name}</span>
-            <span className="md-meta tnum">
-              {f.entryCount} · {fmtBytes(f.sizeBytes)}
-            </span>
-          </button>
-        ))}
-      </nav>
-      <div className="md-main">{file ? <PrefEntries key={file} file={file} onChanged={files.reload} /> : null}</div>
-    </div>
+    <button type="button" className={sub ? `${s.item} ${s.sub}` : s.item} aria-current={current || undefined} onClick={onClick}>
+      <KIcon name={icon} size={14} />
+      <span className={s.itemText}>{typeof name === 'string' ? <span className={s.name}>{name}</span> : name}</span>
+      {meta != null && <span className={s.meta}>{meta}</span>}
+    </button>
   );
 }
 
-const PREF_TYPES: PrefType[] = ['string', 'boolean', 'int', 'long', 'float', 'string_set'];
+// ================================================================ shared --
 
-function validatePref(type: PrefType, value: string): string | null {
-  if (type === 'boolean' && value !== 'true' && value !== 'false') return 'expected true or false';
-  if ((type === 'int' || type === 'long') && !/^-?\d+$/.test(value.trim())) return 'expected an integer';
-  if (type === 'float' && (value.trim() === '' || Number.isNaN(Number(value)))) return 'expected a number';
-  if (type === 'string_set') {
-    const v = tryParseJson(value, 'application/json');
-    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) return 'expected a JSON array of strings';
-  }
-  return null;
+interface Entry {
+  key: string;
+  type: ValueType;
+  value: string;
+  sizeBytes?: number;
 }
 
-function PrefEntries({ file, onChanged }: { file: string; onChanged: () => void }) {
-  const entries = useAsync((s) => api.get<PrefEntry[]>(`prefs/${enc(file)}`, undefined, s), [file]);
+/** Keys, types and values with in-place editing, adding and deleting: shared
+ *  preferences and MMKV. */
+function EntriesCard({
+  title,
+  hint,
+  entries,
+  types,
+  typeLabel = 'Type',
+  typeEditable,
+  showSize,
+  onPut,
+  onDelete,
+  onReload,
+  note,
+}: {
+  title: ReactNode;
+  hint: ReactNode;
+  entries: Entry[];
+  types: ValueType[];
+  typeLabel?: string;
+  typeEditable?: boolean;
+  showSize?: boolean;
+  onPut: (e: Entry) => Promise<boolean>;
+  onDelete: (e: Entry) => void;
+  onReload: () => void;
+  note?: ReactNode;
+}) {
+  const embed = useStore(appStore, (x) => x.embed);
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
-  const [setEdit, setSetEdit] = useState<PrefEntry | null>(null);
-
-  const put = async (e: PrefEntry) => {
-    const err = validatePref(e.type, e.value);
+  const rows = useMemo(() => {
+    const n = q.trim().toLowerCase();
+    return entries.filter((e) => !n || e.key.toLowerCase().includes(n) || e.value.toLowerCase().includes(n));
+  }, [entries, q]);
+  const put = async (e: Entry) => {
+    const err = validateValue(e.type, e.value);
     if (err) {
       toast(`${e.key}: ${err}`, 'error');
       return false;
     }
-    try {
-      await api.put<PrefEntry>(`prefs/${enc(file)}`, e);
-      entries.reload();
-      onChanged();
-      return true;
-    } catch (x) {
-      toast(`Could not save ${e.key}: ${errorMessage(x)}`, 'error');
-      return false;
-    }
+    return onPut(e);
   };
-  const remove = async (e: PrefEntry) => {
-    if (!(await confirmDialog({ title: `Delete “${e.key}”?`, message: `Removes the key from ${file}.xml.`, confirmLabel: 'Delete', danger: true }))) return;
-    try {
-      await api.del(`prefs/${enc(file)}`, { key: e.key });
-      entries.reload();
-      onChanged();
-    } catch (x) {
-      toast(`Delete failed: ${errorMessage(x)}`, 'error');
-    }
-  };
-
-  const rows = useMemo(() => {
-    const n = q.trim().toLowerCase();
-    return (entries.data ?? []).filter((e) => !n || e.key.toLowerCase().includes(n) || e.value.toLowerCase().includes(n));
-  }, [entries.data, q]);
-
+  const typeCell = (e: Entry) =>
+    typeEditable ? (
+      <SelectInput value={e.type} aria-label={`${e.key} type`} title="Inferred; change it to store the value as another type" onChange={(x) => void put({ ...e, type: x.target.value as ValueType })} style={{ width: 100, height: 32 }}>
+        {types.map((t) => (
+          <option key={t}>{t}</option>
+        ))}
+      </SelectInput>
+    ) : (
+      <Badge>{e.type}</Badge>
+    );
   return (
-    <div className="list-pane">
-      <div className="toolbar">
-        <div className="toolbar-title mono">{file}</div>
-        <SearchInput value={q} onChange={setQ} placeholder="Filter keys" width={220} />
-        <span className="grow" />
-        <IconButton icon="refresh" label="Reload" onClick={entries.reload} />
-        <button type="button" className="btn primary" onClick={() => setAdding(true)}>
-          <Icon name="plus" size={14} />
-          <span>Add entry</span>
-        </button>
+    <FlushCard
+      title={title}
+      hint={hint}
+      aside={
+        <Row gap={8}>
+          <IconBtn icon="refresh" outlined label="Reload" onClick={onReload} />
+          <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
+            Add entry
+          </Button>
+        </Row>
+      }
+    >
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <SearchInput label="Filter keys" placeholder="Filter keys and values" value={q} onChange={setQ} />
+        {note}
       </div>
-      <div className="scroll">
-        {entries.error ? (
-          <Unavailable what="Shared preferences" error={entries.error} />
-        ) : !entries.data ? (
-          <Loading />
-        ) : (
-          <div className="table-scroll">
-            <table className="grid prefs">
-              <thead>
-                <tr>
-                  <th>Key</th>
-                  <th>Type</th>
-                  <th className="col-value">Value</th>
-                  <th aria-label="Actions" />
-                </tr>
-              </thead>
-              <tbody>
-                {adding && <AddPrefRow onCancel={() => setAdding(false)} onAdd={async (e) => (await put(e)) && setAdding(false)} />}
-                {rows.map((e) => (
-                  <tr key={e.key}>
-                    <td className="mono pref-key">{e.key}</td>
-                    <td>
-                      <span className="badge">{e.type}</span>
-                    </td>
-                    <td className="col-value">
-                      <PrefValue entry={e} onSave={(value) => put({ ...e, value })} onEditSet={() => setSetEdit(e)} />
-                    </td>
-                    <td className="row-actions">
-                      <IconButton icon="trash" label={`Delete ${e.key}`} onClick={() => remove(e)} />
-                    </td>
-                  </tr>
-                ))}
-                {!rows.length && !adding && (
-                  <tr>
-                    <td colSpan={4}>
-                      <div className="body-empty">{entries.data.length ? 'No keys match.' : 'This file is empty.'}</div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+      {adding && <AddEntry types={types} onCancel={() => setAdding(false)} onAdd={async (e) => (await put(e)) && setAdding(false)} />}
+      {embed ? (
+        rows.length === 0 ? (
+          <div className={s.row}>
+            <Text variant="small">{entries.length ? 'No keys match.' : 'Empty.'}</Text>
           </div>
-        )}
-      </div>
-      {setEdit && (
-        <StringSetEditor
-          entry={setEdit}
-          onClose={() => setSetEdit(null)}
-          onSave={async (value) => (await put({ ...setEdit, value })) && setSetEdit(null)}
-        />
+        ) : (
+          rows.map((e) => (
+            <div key={e.key} className={s.row}>
+              <Row gap={8}>
+                <Text variant="mono" tone="primary" weight={600} breakAnywhere grow>
+                  {e.key}
+                </Text>
+                <IconBtn icon="trash" size="lg" label={`Delete ${e.key}`} onClick={() => onDelete(e)} />
+              </Row>
+              <ValueEditor type={e.type} value={e.value} label={e.key} onSave={(v) => put({ ...e, value: v })} />
+              <Row gap={8}>
+                {typeCell(e)}
+                {showSize && e.sizeBytes != null && <Text variant="meta">{fmtBytes(e.sizeBytes)}</Text>}
+              </Row>
+            </div>
+          ))
+        )
+      ) : (
+        <Table minWidth={720} label="Entries">
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>{typeLabel}</th>
+              <th>Value</th>
+              {showSize && <th className={numCell}>Size</th>}
+              <th aria-label="Delete" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && <TableEmptyRow colSpan={showSize ? 5 : 4}>{entries.length ? 'No keys match.' : 'Empty.'}</TableEmptyRow>}
+            {rows.map((e) => (
+              <tr key={e.key}>
+                <td style={{ maxWidth: 280 }}>
+                  <Text variant="mono" tone="primary" weight={600} breakAnywhere>
+                    {e.key}
+                  </Text>
+                </td>
+                <td>{typeCell(e)}</td>
+                <td style={{ minWidth: 260 }}>
+                  <ValueEditor type={e.type} value={e.value} label={e.key} onSave={(v) => put({ ...e, value: v })} />
+                </td>
+                {showSize && <td className={numCell}>{e.sizeBytes != null ? fmtBytes(e.sizeBytes) : '–'}</td>}
+                <td>
+                  <IconBtn icon="trash" label={`Delete ${e.key}`} onClick={() => onDelete(e)} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
       )}
+    </FlushCard>
+  );
+}
+
+function AddEntry({ types, onAdd, onCancel }: { types: ValueType[]; onAdd: (e: Entry) => void; onCancel: () => void }) {
+  const [e, setE] = useState<Entry>({ key: '', type: types.includes('string') ? 'string' : types[0], value: '' });
+  const submit = () => {
+    if (!e.key.trim()) return toast('A key is required', 'error');
+    onAdd({ ...e, key: e.key.trim(), value: e.type === 'string_set' && !e.value.trim() ? '[]' : e.value });
+  };
+  return (
+    <div className={s.row} style={{ background: 'var(--s2)' }}>
+      <Text variant="label">New entry</Text>
+      <Row gap={8} wrap>
+        <TextInput mono autoFocus placeholder="key" value={e.key} onChange={(x) => setE({ ...e, key: x.target.value })} aria-label="Key" style={{ flex: '1 1 160px' }} />
+        <SelectInput value={e.type} aria-label="Type" onChange={(x) => setE({ ...e, type: x.target.value as ValueType, value: x.target.value === 'boolean' || x.target.value === 'bool' ? 'true' : e.value })} style={{ width: 120 }}>
+          {types.map((t) => (
+            <option key={t}>{t}</option>
+          ))}
+        </SelectInput>
+        <TextInput
+          mono
+          placeholder={e.type === 'string_set' ? '["a","b"]' : e.type === 'bytes' ? 'base64' : 'value'}
+          value={e.value}
+          onChange={(x) => setE({ ...e, value: x.target.value })}
+          onKeyDown={(x) => x.key === 'Enter' && submit()}
+          aria-label="Value"
+          style={{ flex: '2 1 200px' }}
+        />
+        <Button variant="primary" size="sm" onClick={submit}>
+          Add
+        </Button>
+        <Button variant="secondary" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+      </Row>
     </div>
   );
 }
 
-function PrefValue({ entry: e, onSave, onEditSet }: { entry: PrefEntry; onSave: (v: string) => Promise<boolean>; onEditSet: () => void }) {
-  const [draft, setDraft] = useState(e.value);
-  useEffect(() => setDraft(e.value), [e.value]);
-  if (e.type === 'boolean') {
-    return (
-      <span className="flag-bool">
-        <Switch checked={e.value === 'true'} onChange={(v) => onSave(String(v))} label={`${e.key}: ${e.value}`} />
-        <span className="mono muted">{e.value}</span>
-      </span>
-    );
-  }
-  if (e.type === 'string_set') {
-    const items = (tryParseJson(e.value, 'application/json') as string[] | undefined) ?? [];
-    return (
-      <button type="button" className="set-value" onClick={onEditSet} title="Edit set">
-        {items.length ? items.map((s) => <span key={s} className="set-chip mono">{s}</span>) : <span className="muted">empty set</span>}
-        <Icon name="edit" size={13} />
-      </button>
-    );
-  }
-  const commit = async () => {
-    if (draft === e.value) return;
-    if (!(await onSave(draft))) setDraft(e.value);
-  };
-  const long = e.type === 'string' && (e.value.length > 80 || e.value.includes('\n'));
-  const epoch = e.type === 'long' && looksLikeEpochMs(Number(e.value)) ? fmtDateTime(Number(e.value), true) : null;
-  const props = {
-    className: 'input mono pref-input',
-    value: draft,
-    spellCheck: false,
-    'aria-label': e.key,
-    onBlur: commit,
-  };
-  return (
-    <span className="pref-edit">
-      {long ? (
-        <textarea {...props} rows={Math.min(6, Math.max(2, Math.ceil(e.value.length / 80)))} onChange={(x) => setDraft(x.target.value)} />
-      ) : (
-        <input
-          {...props}
-          inputMode={e.type === 'string' ? undefined : e.type === 'float' ? 'decimal' : 'numeric'}
-          onChange={(x) => setDraft(x.target.value)}
-          onKeyDown={(x) => {
-            if (x.key === 'Enter') (x.target as HTMLInputElement).blur();
-            if (x.key === 'Escape') setDraft(e.value);
-          }}
-        />
-      )}
-      {epoch && <small className="muted">{epoch}</small>}
-    </span>
-  );
-}
+// ================================================================= prefs --
 
-function AddPrefRow({ onAdd, onCancel }: { onAdd: (e: PrefEntry) => void; onCancel: () => void }) {
-  const [e, setE] = useState<PrefEntry>({ key: '', type: 'string', value: '' });
-  const submit = () => {
-    if (!e.key.trim()) return toast('Key is required', 'error');
-    onAdd({ ...e, key: e.key.trim(), value: e.type === 'string_set' && !e.value.trim() ? '[]' : e.value });
-  };
+const PREF_TYPES: PrefType[] = ['string', 'boolean', 'int', 'long', 'float', 'string_set'];
+
+function PrefsView({ file }: { file: string | null }) {
+  const files = useAsync((sig) => api.get<PrefFile[]>('prefs', undefined, sig), []);
+  useEffect(() => {
+    if (!file && files.data?.length) navigate(routePath('storage', 'prefs', files.data[0].name), { replace: true });
+  }, [file, files.data]);
+  if (files.error) return <LoadError what="prefs" error={files.error} onRetry={files.reload} />;
+  if (!files.data) return <EmptyState>Loading preferences…</EmptyState>;
+  if (!files.data.length) return <EmptyState title="No shared preferences">The app has not written a SharedPreferences file yet.</EmptyState>;
   return (
-    <tr className="add-row">
-      <td>
-        <input className="input mono" placeholder="key" value={e.key} onChange={(x) => setE({ ...e, key: x.target.value })} autoFocus aria-label="New key" />
-      </td>
-      <td>
-        <select
-          className="select"
-          value={e.type}
-          aria-label="New type"
-          onChange={(x) => {
-            const type = x.target.value as PrefType;
-            setE({ ...e, type, value: type === 'boolean' ? 'true' : type === 'string_set' ? '[]' : e.value });
-          }}
-        >
-          {PREF_TYPES.map((t) => (
-            <option key={t}>{t}</option>
+    <div className={s.layout}>
+      <FlushCard title="Files" hint={plural(files.data.length, 'file')}>
+        <nav className={s.list} aria-label="Preference files">
+          {files.data.map((f) => (
+            <StoreItem key={f.name} icon="key" current={f.name === file} name={f.name} meta={`${fmt(f.entryCount)} · ${fmtBytes(f.sizeBytes)}`} onClick={() => navigate(routePath('storage', 'prefs', f.name), { replace: true })} />
           ))}
-        </select>
-      </td>
-      <td className="col-value">
-        {e.type === 'boolean' ? (
-          <select className="select" value={e.value} onChange={(x) => setE({ ...e, value: x.target.value })} aria-label="New value">
-            <option>true</option>
-            <option>false</option>
-          </select>
-        ) : (
-          <input
-            className="input mono"
-            placeholder={e.type === 'string_set' ? '["a","b"]' : 'value'}
-            value={e.value}
-            onChange={(x) => setE({ ...e, value: x.target.value })}
-            onKeyDown={(x) => x.key === 'Enter' && submit()}
-            aria-label="New value"
-          />
-        )}
-      </td>
-      <td className="row-actions">
-        <IconButton icon="check" label="Add entry" onClick={submit} kind="primary" />
-        <IconButton icon="x" label="Cancel" onClick={onCancel} />
-      </td>
-    </tr>
+        </nav>
+      </FlushCard>
+      {file && <PrefEntries key={file} file={file} onChanged={files.reload} />}
+    </div>
   );
 }
 
-function StringSetEditor({ entry, onClose, onSave }: { entry: PrefEntry; onClose: () => void; onSave: (v: string) => void }) {
-  const [text, setText] = useState(() => ((tryParseJson(entry.value, 'application/json') as string[] | undefined) ?? []).join('\n'));
-  const values = text.split('\n').map((s) => s.trim()).filter(Boolean);
+function PrefEntries({ file, onChanged }: { file: string; onChanged: () => void }) {
+  const entries = useAsync((sig) => api.get<PrefEntry[]>(`prefs/${enc(file)}`, undefined, sig), [file]);
+  if (entries.error) return <LoadError what="prefs" error={entries.error} onRetry={entries.reload} />;
+  if (!entries.data) return <EmptyState>Loading {file}…</EmptyState>;
   return (
-    <Modal
-      title={
-        <span>
-          Edit <span className="mono">{entry.key}</span>
-        </span>
-      }
-      onClose={onClose}
-      width={460}
-      footer={
-        <>
-          <span className="muted">{new Set(values).size} values</span>
-          <span className="grow" />
-          <button type="button" className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="button" className="btn primary" onClick={() => onSave(JSON.stringify([...new Set(values)]))}>
-            Save
-          </button>
-        </>
-      }
-    >
-      <p className="dialog-msg">One value per line. Duplicates are dropped (it is a set).</p>
-      <textarea className="input mono body-edit" rows={10} value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} />
-    </Modal>
+    <EntriesCard
+      title={file}
+      hint={`${plural(entries.data.length, 'key')} · ${file}.xml`}
+      entries={entries.data}
+      types={PREF_TYPES}
+      onReload={entries.reload}
+      onPut={async (e) => {
+        try {
+          await api.put<PrefEntry>(`prefs/${enc(file)}`, { key: e.key, type: e.type as PrefType, value: e.value });
+          entries.reload();
+          onChanged();
+          return true;
+        } catch (x) {
+          toast(`Could not save ${e.key}: ${errorMessage(x)}`, 'error');
+          return false;
+        }
+      }}
+      onDelete={async (e) => {
+        if (!(await confirmDialog({ title: `Delete “${e.key}”?`, message: `Removes the key from ${file}.xml.`, confirmLabel: 'Delete key', danger: true }))) return;
+        try {
+          await api.del(`prefs/${enc(file)}`, { key: e.key });
+          entries.reload();
+          onChanged();
+        } catch (x) {
+          toast(`Could not delete ${e.key}: ${errorMessage(x)}`, 'error');
+        }
+      }}
+    />
   );
 }
 
-// =================================================================== mmkv ==
+// ================================================================== mmkv --
 
 const MMKV_TYPES: MmkvValueType[] = ['string', 'bool', 'int', 'long', 'float', 'double', 'bytes'];
 
-function validateMmkv(type: MmkvValueType, value: string): string | null {
-  if (type === 'bool' && value !== 'true' && value !== 'false') return 'expected true or false';
-  if ((type === 'int' || type === 'long') && !/^-?\d+$/.test(value.trim())) return 'expected an integer';
-  if ((type === 'float' || type === 'double') && (value.trim() === '' || Number.isNaN(Number(value)))) return 'expected a number';
-  if (type === 'bytes' && !/^[A-Za-z0-9+/]*={0,2}$/.test(value.trim())) return 'expected base64';
-  return null;
-}
-
-function MmkvUnavailable({ error }: { error: unknown }) {
-  if (!isUnavailable(error)) return <Unavailable what="MMKV stores" error={error} />;
-  return (
-    <EmptyState icon="lock" title="MMKV isn't available in this build">
-      Native MMKV needs <span className="mono">com.tencent:mmkv</span> in the app, plus{' '}
-      <span className="mono">Killcam.registerMmkv(id, cryptKey)</span> for every non-default instance (Killcam never opens stores it wasn't given a key
-      for). <span className="mono">react-native-mmkv</span> stores are inspected with Rozenite’s storage plugin in React Native DevTools.
-    </EmptyState>
-  );
-}
-
 function MmkvView({ id }: { id: string | null }) {
-  const list = useAsync((s) => api.get<MmkvInstance[]>('mmkv', undefined, s), []);
+  const list = useAsync((sig) => api.get<MmkvInstance[]>('mmkv', undefined, sig), []);
   useEffect(() => {
-    if (!id && list.data?.length) {
-      const first = list.data.find((m) => !m.error) ?? list.data[0];
-      navigate(routePath('storage', 'mmkv', first.id), { replace: true });
-    }
+    if (!id && list.data?.length) navigate(routePath('storage', 'mmkv', (list.data.find((m) => !m.error) ?? list.data[0]).id), { replace: true });
   }, [id, list.data]);
-  if (list.error) return <MmkvUnavailable error={list.error} />;
-  if (!list.data) return <Loading />;
+  if (list.error) return <LoadError what="mmkv" error={list.error} onRetry={list.reload} />;
+  if (!list.data) return <EmptyState>Loading MMKV…</EmptyState>;
   if (!list.data.length)
     return (
-      <EmptyState icon="storage" title="No MMKV instances">
-        The default instance appears once the app calls <span className="mono">MMKV.initialize</span>; register others with{' '}
-        <span className="mono">Killcam.registerMmkv(id, cryptKey)</span>.
+      <EmptyState title="No MMKV instances">
+        The default instance appears once the app has called MMKV.initialize(). Register others with Killcam.registerMmkv(id, cryptKey).
       </EmptyState>
     );
   const inst = list.data.find((m) => m.id === id) ?? null;
   return (
-    <div className="master-detail">
-      <nav className="md-list" aria-label="MMKV instances">
-        {list.data.map((m) => (
-          <button
-            type="button"
-            key={m.id}
-            className={['md-item', 'mmkv-item', m.id === id ? 'sel' : '', m.error ? 'has-error' : ''].join(' ')}
-            onClick={() => navigate(routePath('storage', 'mmkv', m.id), { replace: true })}
-            title={m.error ?? undefined}
-          >
-            <Icon name={m.error ? 'warning' : m.encrypted ? 'lock' : 'key'} size={14} />
-            <span className="md-name">
-              <span className="mono">{m.id}</span>
-              {m.error ? (
-                <small className="text-error">{m.error}</small>
-              ) : (
-                <small className="muted tnum">
-                  {m.keyCount} keys · {fmtBytes(m.sizeBytes)}
-                </small>
-              )}
-            </span>
-            {m.encrypted && <span className="badge badge-enc">encrypted</span>}
-          </button>
-        ))}
-      </nav>
-      <div className="md-main">
-        {!inst ? null : inst.error ? (
-          <EmptyState icon="warning" tone="error" title={`Could not open ${inst.id}`}>
-            <span className="mono">{inst.error}</span>
-          </EmptyState>
+    <div className={s.layout}>
+      <FlushCard title="Instances" hint={plural(list.data.length, 'instance')}>
+        <nav className={s.list} aria-label="MMKV instances">
+          {list.data.map((m) => (
+            <StoreItem
+              key={m.id}
+              icon={m.error ? 'warning' : m.encrypted ? 'lock' : 'key'}
+              current={m.id === id}
+              name={
+                <>
+                  <span className={s.name}>{m.id}</span>
+                  <Text variant="meta" tone={m.error ? 'fail' : 'muted'}>
+                    {m.error ? '✕ Could not be opened' : `${plural(m.keyCount, 'key')} · ${fmtBytes(m.sizeBytes)}`}
+                  </Text>
+                </>
+              }
+              meta={m.encrypted ? <Badge>Encrypted</Badge> : undefined}
+              onClick={() => navigate(routePath('storage', 'mmkv', m.id), { replace: true })}
+            />
+          ))}
+        </nav>
+      </FlushCard>
+      {inst &&
+        (inst.error ? (
+          <Banner tone="fail" title={`${inst.id} could not be opened`}>
+            {inst.error}
+          </Banner>
         ) : (
           <MmkvEntries key={inst.id} inst={inst} onChanged={list.reload} />
-        )}
-      </div>
+        ))}
     </div>
   );
 }
 
 function MmkvEntries({ inst, onChanged }: { inst: MmkvInstance; onChanged: () => void }) {
-  const entries = useAsync((s) => api.get<MmkvEntry[]>(`mmkv/${enc(inst.id)}`, undefined, s), [inst.id]);
-  const [q, setQ] = useState('');
-  const [adding, setAdding] = useState(false);
-  const [bytesEdit, setBytesEdit] = useState<MmkvEntry | null>(null);
-
-  const put = async (e: { key: string; type: MmkvValueType; value: string }) => {
-    const err = validateMmkv(e.type, e.value);
-    if (err) {
-      toast(`${e.key}: ${err}`, 'error');
-      return false;
-    }
-    try {
-      await api.put<MmkvEntry>(`mmkv/${enc(inst.id)}`, { key: e.key, type: e.type, value: e.type === 'bytes' ? e.value.trim() : e.value });
-      entries.reload();
-      onChanged();
-      return true;
-    } catch (x) {
-      toast(`Could not save ${e.key}: ${errorMessage(x)}`, 'error');
-      return false;
-    }
-  };
-  const remove = async (e: MmkvEntry) => {
-    if (!(await confirmDialog({ title: `Delete “${e.key}”?`, message: `Removes the key from ${inst.id}.`, confirmLabel: 'Delete', danger: true }))) return;
-    try {
-      await api.del(`mmkv/${enc(inst.id)}`, { key: e.key });
-      entries.reload();
-      onChanged();
-    } catch (x) {
-      toast(`Delete failed: ${errorMessage(x)}`, 'error');
-    }
-  };
-  const rows = useMemo(() => {
-    const n = q.trim().toLowerCase();
-    return (entries.data ?? []).filter((e) => !n || e.key.toLowerCase().includes(n) || e.value.toLowerCase().includes(n));
-  }, [entries.data, q]);
-
+  const entries = useAsync((sig) => api.get<MmkvEntry[]>(`mmkv/${enc(inst.id)}`, undefined, sig), [inst.id]);
+  if (entries.error) return <LoadError what="mmkv" error={entries.error} onRetry={entries.reload} />;
+  if (!entries.data) return <EmptyState>Loading {inst.id}…</EmptyState>;
   return (
-    <div className="list-pane">
-      <div className="toolbar">
-        <div className="toolbar-title">
-          <span className="mono">{inst.id}</span>
-          {inst.encrypted && <span className="badge badge-enc">encrypted</span>}
-        </div>
-        <SearchInput value={q} onChange={setQ} placeholder="Filter keys" width={220} />
-        <span className="grow" />
-        <IconButton icon="refresh" label="Reload" onClick={entries.reload} />
-        <button type="button" className="btn primary" onClick={() => setAdding(true)}>
-          <Icon name="plus" size={14} />
-          <span>Add entry</span>
-        </button>
-      </div>
-      <div className="subbar muted">
-        <Icon name="info" size={13} />
-        <span>
-          Types are inferred: MMKV stores raw bytes, so Killcam guesses from size and content. Pick the right type when editing; it decides how the value
-          is encoded.
-        </span>
-      </div>
-      <div className="scroll">
-        {entries.error ? (
-          <MmkvUnavailable error={entries.error} />
-        ) : !entries.data ? (
-          <Loading />
-        ) : (
-          <div className="table-scroll">
-            <table className="grid prefs mmkv">
-              <thead>
-                <tr>
-                  <th>Key</th>
-                  <th title="Inferred from the stored bytes">Type (inferred)</th>
-                  <th className="col-value">Value</th>
-                  <th className="num">Size</th>
-                  <th aria-label="Actions" />
-                </tr>
-              </thead>
-              <tbody>
-                {adding && <AddMmkvRow onCancel={() => setAdding(false)} onAdd={async (e) => (await put(e)) && setAdding(false)} />}
-                {rows.map((e) => (
-                  <tr key={e.key}>
-                    <td className="mono pref-key">{e.key}</td>
-                    <td>
-                      <select
-                        className="select type-select mono"
-                        value={e.type}
-                        aria-label={`${e.key} type`}
-                        title="Inferred type; change it to re-encode the value"
-                        onChange={(x) => void put({ key: e.key, type: x.target.value as MmkvValueType, value: e.value })}
-                      >
-                        {MMKV_TYPES.map((t) => (
-                          <option key={t}>{t}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="col-value">
-                      <MmkvValue entry={e} onSave={(value) => put({ key: e.key, type: e.type, value })} onEditBytes={() => setBytesEdit(e)} />
-                    </td>
-                    <td className="num tnum muted">{fmtBytes(e.sizeBytes)}</td>
-                    <td className="row-actions">
-                      <IconButton icon="trash" label={`Delete ${e.key}`} onClick={() => remove(e)} />
-                    </td>
-                  </tr>
-                ))}
-                {!rows.length && !adding && (
-                  <tr>
-                    <td colSpan={5}>
-                      <div className="body-empty">{entries.data.length ? 'No keys match.' : 'This instance is empty.'}</div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-      {bytesEdit && (
-        <BytesEditor entry={bytesEdit} onClose={() => setBytesEdit(null)} onSave={async (v) => (await put({ key: bytesEdit.key, type: 'bytes', value: v })) && setBytesEdit(null)} />
-      )}
-    </div>
-  );
-}
-
-function MmkvValue({ entry: e, onSave, onEditBytes }: { entry: MmkvEntry; onSave: (v: string) => Promise<boolean>; onEditBytes: () => void }) {
-  const [draft, setDraft] = useState(e.value);
-  useEffect(() => setDraft(e.value), [e.value]);
-  if (e.type === 'bool') {
-    return (
-      <span className="flag-bool">
-        <Switch checked={e.value === 'true'} onChange={(v) => onSave(String(v))} label={`${e.key}: ${e.value}`} />
-        <span className="mono muted">{e.value}</span>
-      </span>
-    );
-  }
-  if (e.type === 'bytes') {
-    return (
-      <button type="button" className="json-value mono" onClick={onEditBytes} title="Edit bytes (base64)">
-        <span className="badge">b64</span>
-        <span className="clip">{e.value || '(empty)'}</span>
-        <Icon name="edit" size={13} />
-      </button>
-    );
-  }
-  const commit = async () => {
-    if (draft === e.value) return;
-    if (!(await onSave(draft))) setDraft(e.value);
-  };
-  const numeric = e.type !== 'string';
-  const long = !numeric && (e.value.length > 80 || e.value.includes('\n'));
-  const epoch = e.type === 'long' && looksLikeEpochMs(Number(e.value)) ? fmtDateTime(Number(e.value), true) : null;
-  return (
-    <span className="pref-edit">
-      {long ? (
-        <textarea
-          className="input mono pref-input"
-          value={draft}
-          spellCheck={false}
-          aria-label={e.key}
-          rows={Math.min(6, Math.max(2, Math.ceil(e.value.length / 80)))}
-          onChange={(x) => setDraft(x.target.value)}
-          onBlur={commit}
-        />
-      ) : (
-        <input
-          className="input mono pref-input"
-          value={draft}
-          spellCheck={false}
-          aria-label={e.key}
-          inputMode={numeric ? (e.type === 'int' || e.type === 'long' ? 'numeric' : 'decimal') : undefined}
-          onChange={(x) => setDraft(x.target.value)}
-          onBlur={commit}
-          onKeyDown={(x) => {
-            if (x.key === 'Enter') (x.target as HTMLInputElement).blur();
-            if (x.key === 'Escape') setDraft(e.value);
-          }}
-        />
-      )}
-      {epoch && <small className="muted">{epoch}</small>}
-    </span>
-  );
-}
-
-function AddMmkvRow({ onAdd, onCancel }: { onAdd: (e: { key: string; type: MmkvValueType; value: string }) => void; onCancel: () => void }) {
-  const [e, setE] = useState<{ key: string; type: MmkvValueType; value: string }>({ key: '', type: 'string', value: '' });
-  const submit = () => {
-    if (!e.key.trim()) return toast('Key is required', 'error');
-    onAdd({ ...e, key: e.key.trim() });
-  };
-  return (
-    <tr className="add-row">
-      <td>
-        <input className="input mono" placeholder="key" value={e.key} onChange={(x) => setE({ ...e, key: x.target.value })} autoFocus aria-label="New key" />
-      </td>
-      <td>
-        <select
-          className="select mono"
-          value={e.type}
-          aria-label="New type"
-          onChange={(x) => {
-            const type = x.target.value as MmkvValueType;
-            setE({ ...e, type, value: type === 'bool' ? 'true' : e.value });
-          }}
-        >
-          {MMKV_TYPES.map((t) => (
-            <option key={t}>{t}</option>
-          ))}
-        </select>
-      </td>
-      <td className="col-value">
-        {e.type === 'bool' ? (
-          <select className="select" value={e.value} onChange={(x) => setE({ ...e, value: x.target.value })} aria-label="New value">
-            <option>true</option>
-            <option>false</option>
-          </select>
-        ) : (
-          <input
-            className="input mono"
-            placeholder={e.type === 'bytes' ? 'base64' : 'value'}
-            value={e.value}
-            onChange={(x) => setE({ ...e, value: x.target.value })}
-            onKeyDown={(x) => x.key === 'Enter' && submit()}
-            aria-label="New value"
-          />
-        )}
-      </td>
-      <td />
-      <td className="row-actions">
-        <IconButton icon="check" label="Add entry" onClick={submit} kind="primary" />
-        <IconButton icon="x" label="Cancel" onClick={onCancel} />
-      </td>
-    </tr>
-  );
-}
-
-function BytesEditor({ entry, onClose, onSave }: { entry: MmkvEntry; onClose: () => void; onSave: (v: string) => void }) {
-  const [text, setText] = useState(entry.value);
-  const valid = /^[A-Za-z0-9+/]*={0,2}$/.test(text.trim().replace(/\s+/g, ''));
-  const preview = useMemo(() => {
-    try {
-      const bin = atob(text.trim().replace(/\s+/g, ''));
-      let out = '';
-      for (let off = 0; off < Math.min(bin.length, 256); off += 16) {
-        const chunk = [...bin.slice(off, off + 16)].map((c) => c.charCodeAt(0));
-        out += `${off.toString(16).padStart(4, '0')}  ${chunk.map((b) => b.toString(16).padStart(2, '0')).join(' ').padEnd(47)}  ${chunk.map((b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : '.')).join('')}\n`;
+    <EntriesCard
+      title={inst.id}
+      hint={`${plural(entries.data.length, 'key')}${inst.encrypted ? ' · encrypted' : ''}`}
+      entries={entries.data}
+      types={MMKV_TYPES}
+      typeLabel="Type (inferred)"
+      typeEditable
+      showSize
+      note={
+        <Text variant="small" tone="muted">
+          MMKV stores raw bytes, so each type is inferred from the stored size and content. Pick the right one when editing: it decides how the value is written.
+        </Text>
       }
-      return { bytes: bin.length, hex: out };
-    } catch {
-      return null;
-    }
-  }, [text]);
-  return (
-    <Modal
-      title={
-        <span>
-          Edit <span className="mono">{entry.key}</span> (bytes)
-        </span>
-      }
-      onClose={onClose}
-      width={620}
-      footer={
-        <>
-          <span className={valid && preview ? 'test-ok' : 'test-no'}>
-            <Icon name={valid && preview ? 'check' : 'warning'} size={13} /> {valid && preview ? `${preview.bytes} bytes` : 'invalid base64'}
-          </span>
-          <span className="grow" />
-          <button type="button" className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="button" className="btn primary" disabled={!valid || !preview} onClick={() => onSave(text.trim().replace(/\s+/g, ''))}>
-            Save
-          </button>
-        </>
-      }
-    >
-      <textarea className="input mono body-edit" rows={5} value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} aria-label="Base64" />
-      {preview && preview.hex && <pre className="raw mono muted hex-preview">{preview.hex}</pre>}
-    </Modal>
+      onReload={entries.reload}
+      onPut={async (e) => {
+        try {
+          await api.put<MmkvEntry>(`mmkv/${enc(inst.id)}`, { key: e.key, type: e.type, value: e.type === 'bytes' ? e.value.trim() : e.value });
+          entries.reload();
+          onChanged();
+          return true;
+        } catch (x) {
+          toast(`Could not save ${e.key}: ${errorMessage(x)}`, 'error');
+          return false;
+        }
+      }}
+      onDelete={async (e) => {
+        if (!(await confirmDialog({ title: `Delete “${e.key}”?`, message: `Removes the key from ${inst.id}.`, confirmLabel: 'Delete key', danger: true }))) return;
+        try {
+          await api.del(`mmkv/${enc(inst.id)}`, { key: e.key });
+          entries.reload();
+          onChanged();
+        } catch (x) {
+          toast(`Could not delete ${e.key}: ${errorMessage(x)}`, 'error');
+        }
+      }}
+    />
   );
 }
 
-// ============================================================== databases ==
+// ============================================================ databases --
 
 function DbView({ db, table }: { db: string | null; table: string | null }) {
-  const dbs = useAsync((s) => api.get<DbInfo[]>('db', undefined, s), []);
+  const dbs = useAsync((sig) => api.get<DbInfo[]>('db', undefined, sig), []);
   const [mode, setMode] = useState<'browse' | 'sql'>('browse');
   useEffect(() => {
     if (!db && dbs.data?.length) {
       const first = dbs.data[0];
-      const t = first.tables.find((x) => x.type === 'table') ?? first.tables[0];
-      navigate(routePath('storage', 'db', first.name, t?.name), { replace: true });
+      navigate(routePath('storage', 'db', first.name, (first.tables.find((t) => t.type === 'table') ?? first.tables[0])?.name), { replace: true });
     }
   }, [db, dbs.data]);
-  if (dbs.error) return <Unavailable what="Databases" error={dbs.error} />;
-  if (!dbs.data) return <Loading />;
-  if (!dbs.data.length) return <EmptyState icon="storage" title="No SQLite databases" />;
+  if (dbs.error) return <LoadError what="databases" error={dbs.error} onRetry={dbs.reload} />;
+  if (!dbs.data) return <EmptyState>Loading databases…</EmptyState>;
+  if (!dbs.data.length) return <EmptyState title="No SQLite databases">The app has not created a database yet.</EmptyState>;
   const info = dbs.data.find((d) => d.name === db) ?? null;
   return (
-    <div className="master-detail">
-      <nav className="md-list" aria-label="Databases">
-        {dbs.data.map((d) => (
-          <div key={d.name} className="db-group">
-            <div className={d.name === db ? 'db-name sel' : 'db-name'} title={d.path}>
-              <Icon name="storage" size={14} />
-              <span className="mono">{d.name}</span>
-              <span className="md-meta">{fmtBytes(d.sizeBytes)}</span>
-            </div>
-            {d.tables.map((t) => (
-              <button
-                type="button"
-                key={t.name}
-                className={d.name === db && t.name === table ? 'md-item sub sel' : 'md-item sub'}
-                onClick={() => {
-                  setMode('browse');
-                  navigate(routePath('storage', 'db', d.name, t.name), { replace: true });
-                }}
-              >
-                <Icon name={t.type === 'view' ? 'eye' : 'table'} size={13} />
-                <span className="md-name mono">{t.name}</span>
-                <span className="md-meta tnum">{t.rowCount ?? (t.type === 'view' ? 'view' : '—')}</span>
-              </button>
-            ))}
-          </div>
-        ))}
-      </nav>
-      <div className="md-main">
-        {info ? (
-          <div className="list-pane">
-            <div className="toolbar">
-              <div className="toolbar-title">
-                <span className="mono">{info.name}</span>
-                {table && mode === 'browse' && (
-                  <>
-                    <Icon name="chevron-right" size={12} />
-                    <span className="mono">{table}</span>
-                  </>
-                )}
+    <div className={s.layout}>
+      <FlushCard title="Databases" hint={plural(dbs.data.length, 'database')}>
+        <nav className={s.list} aria-label="Databases and tables">
+          {dbs.data.map((d) => (
+            <div key={d.name}>
+              <div className={s.groupHead}>
+                <Row gap={8}>
+                  <Text variant="mono" tone="primary" weight={600} truncate grow title={d.path}>
+                    {d.name}
+                  </Text>
+                  <Text variant="meta">{fmtBytes(d.sizeBytes)}</Text>
+                </Row>
               </div>
-              <span className="grow" />
-              <Segmented<'browse' | 'sql'>
-                label="Mode"
-                value={table ? mode : 'sql'}
-                onChange={setMode}
-                options={[
-                  { value: 'browse', label: 'Browse' },
-                  { value: 'sql', label: 'SQL' },
-                ]}
-              />
+              {d.tables.map((t) => (
+                <StoreItem
+                  key={t.name}
+                  sub
+                  icon={t.type === 'view' ? 'eye' : 'table'}
+                  current={d.name === db && t.name === table && mode === 'browse'}
+                  name={t.name}
+                  meta={t.rowCount != null ? plural(t.rowCount, 'row') : 'view'}
+                  onClick={() => {
+                    setMode('browse');
+                    navigate(routePath('storage', 'db', d.name, t.name), { replace: true });
+                  }}
+                />
+              ))}
             </div>
-            {table && mode === 'browse' ? (
-              <TableBrowser key={`${info.name}/${table}`} db={info.name} table={table} />
-            ) : (
-              <SqlConsole key={info.name} db={info.name} initial={`SELECT * FROM ${table ?? info.tables[0]?.name ?? 'sqlite_master'} LIMIT 50;`} />
-            )}
-          </div>
-        ) : (
-          <EmptyState icon="storage" title="Pick a database" />
-        )}
-      </div>
+          ))}
+        </nav>
+      </FlushCard>
+      {info && (
+        <Stack gap={14}>
+          <Row gap={10} wrap>
+            <Text variant="heading-sm">{info.name}</Text>
+            <Spacer />
+            <Segmented<'browse' | 'sql'>
+              label="Mode"
+              value={table ? mode : 'sql'}
+              onChange={setMode}
+              options={[
+                { value: 'browse', label: 'Browse a table' },
+                { value: 'sql', label: 'Run SQL' },
+              ]}
+            />
+          </Row>
+          {table && mode === 'browse' ? (
+            <TableBrowser key={`${info.name}/${table}`} db={info.name} table={table} />
+          ) : (
+            <SqlConsole key={info.name} db={info.name} initial={`SELECT * FROM ${table ?? info.tables[0]?.name ?? 'sqlite_master'} LIMIT 50;`} />
+          )}
+        </Stack>
+      )}
     </div>
   );
 }
@@ -804,60 +513,56 @@ const PAGE = 50;
 
 function TableBrowser({ db, table }: { db: string; table: string }) {
   const [offset, setOffset] = useState(0);
-  const [sort, setSort] = useState<{ col: string; desc: boolean } | null>(null);
+  const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null);
   const res = useAsync(
-    (s) =>
-      api.get<QueryResult>(
-        `db/${enc(db)}/tables/${enc(table)}`,
-        { offset, limit: PAGE, orderBy: sort?.col, desc: sort ? sort.desc : undefined },
-        s,
-      ),
-    [db, table, offset, sort?.col, sort?.desc],
+    (sig) => api.get<QueryResult>(`db/${enc(db)}/tables/${enc(table)}`, { offset, limit: PAGE, orderBy: sort?.key, desc: sort ? sort.dir === 'desc' : undefined }, sig),
+    [db, table, offset, sort?.key, sort?.dir],
   );
   const r = res.data;
   const total = r?.totalRows ?? null;
   const pages = total != null ? Math.max(1, Math.ceil(total / PAGE)) : null;
   const page = Math.floor(offset / PAGE) + 1;
+  if (res.error) return <LoadError what="databases" error={res.error} onRetry={res.reload} />;
   return (
-    <>
-      <div className="subbar">
-        <span className="muted tnum">
-          {total != null ? `${total.toLocaleString()} rows` : ''}
-          {r ? ` · ${r.elapsedMs} ms` : ''}
-        </span>
-        <span className="grow" />
-        <div className="pager">
-          <IconButton icon="skip-back" label="First page" size={13} disabled={offset === 0} onClick={() => setOffset(0)} />
-          <IconButton icon="back" label="Previous page" size={14} disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))} />
-          <span className="tnum">
-            {page}
-            {pages ? ` / ${pages}` : ''}
-          </span>
-          <IconButton icon="chevron-right" label="Next page" size={14} disabled={pages != null ? page >= pages : (r?.rows.length ?? 0) < PAGE} onClick={() => setOffset(offset + PAGE)} />
-          <IconButton icon="skip-fwd" label="Last page" size={13} disabled={pages == null || page >= pages} onClick={() => pages && setOffset((pages - 1) * PAGE)} />
+    <FlushCard
+      title={table}
+      hint={r ? `${total != null ? plural(total, 'row') : ''} · read in ${fmt(r.elapsedMs)} ms` : 'Loading…'}
+      aside={
+        <Row gap={4}>
+          <IconBtn icon="skip-back" size="sm" outlined label="First page" disabled={offset === 0} onClick={() => setOffset(0)} />
+          <IconBtn icon="back" size="sm" outlined label="Previous page" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))} />
+          <Text variant="small" nowrap>
+            Page {fmt(page)}
+            {pages ? ` of ${fmt(pages)}` : ''}
+          </Text>
+          <IconBtn icon="chevron-right" size="sm" outlined label="Next page" disabled={pages != null ? page >= pages : (r?.rows.length ?? 0) < PAGE} onClick={() => setOffset(offset + PAGE)} />
+          <IconBtn icon="skip-fwd" size="sm" outlined label="Last page" disabled={pages == null || page >= pages} onClick={() => pages && setOffset((pages - 1) * PAGE)} />
+          <IconBtn icon="refresh" size="sm" outlined label="Reload" onClick={res.reload} />
+        </Row>
+      }
+    >
+      {!r ? (
+        <div style={{ padding: 24 }}>
+          <Text variant="small">Loading…</Text>
         </div>
-        <IconButton icon="refresh" label="Reload" onClick={res.reload} />
-      </div>
-      <div className="scroll grid-scroll">
-        {res.error ? (
-          <Unavailable what="Databases" error={res.error} />
-        ) : !r ? (
-          <Loading />
-        ) : r.error ? (
-          <div className="notice notice-error mono">{r.error}</div>
-        ) : (
-          <ResultGrid
-            result={r}
-            rowOffset={offset}
-            sort={sort}
-            onSort={(col) => {
-              setOffset(0);
-              setSort((s) => (s?.col === col ? (s.desc ? null : { col, desc: true }) : { col, desc: false }));
-            }}
-          />
-        )}
-      </div>
-    </>
+      ) : r.error ? (
+        <div style={{ padding: 16 }}>
+          <Banner tone="fail" title="The query failed">
+            <Text variant="mono">{r.error}</Text>
+          </Banner>
+        </div>
+      ) : (
+        <ResultTable
+          result={r}
+          rowOffset={offset}
+          sort={sort}
+          onSort={(col) => {
+            setOffset(0);
+            setSort((x) => (x?.key === col ? (x.dir === 'asc' ? { key: col, dir: 'desc' } : null) : { key: col, dir: 'asc' }));
+          }}
+        />
+      )}
+    </FlushCard>
   );
 }
 
@@ -880,329 +585,303 @@ function SqlConsole({ db, initial }: { db: string; initial: string }) {
     }
   };
   return (
-    <div className="sql">
-      <div className="sql-editor">
-        <textarea
-          className="input mono"
-          value={sql}
-          rows={4}
-          spellCheck={false}
-          aria-label="SQL"
-          onChange={(e) => setSql(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              void run();
-            }
-          }}
-        />
-        <div className="sql-actions">
-          <button type="button" className="btn primary" onClick={run} disabled={running}>
-            <Icon name="play" size={12} />
-            <span>{running ? 'Running…' : 'Run'}</span>
-          </button>
-          <kbd>⌘/Ctrl + Enter</kbd>
-          <span className="grow" />
-          {result && !result.error && (
-            <span className="muted tnum">
-              {result.affectedRows != null ? `${result.affectedRows} row${result.affectedRows === 1 ? '' : 's'} affected` : `${result.rows.length} row${result.rows.length === 1 ? '' : 's'}`}
-              {result.truncated ? ' (truncated)' : ''} · {result.elapsedMs} ms
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="scroll grid-scroll">
-        {failure ? (
-          isUnavailable(failure) ? (
-            <Unavailable what="Databases" error={failure} />
-          ) : (
-            <div className="notice notice-error mono">{errorMessage(failure)}</div>
-          )
-        ) : result?.error ? (
-          <div className="notice notice-error mono">{result.error}</div>
-        ) : result && result.columns.length ? (
-          <ResultGrid result={result} rowOffset={0} />
-        ) : result ? (
-          <div className="body-empty">Statement ran. No rows returned.</div>
+    <Stack gap={14}>
+      <TextAreaField
+        label="SQL"
+        rows={4}
+        value={sql}
+        onChange={(e) => setSql(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            void run();
+          }
+        }}
+        style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}
+        footer={
+          <>
+            <Button variant="primary" size="sm" onClick={run} disabled={running}>
+              {running ? 'Running…' : 'Run'}
+            </Button>
+            <Kbd>⌘ Enter</Kbd>
+            <Spacer />
+            {result && !result.error && (
+              <Text variant="meta">
+                {result.affectedRows != null ? `${plural(result.affectedRows, 'row')} changed` : plural(result.rows.length, 'row')}
+                {result.truncated ? ' (cut short by the device)' : ''} · {fmt(result.elapsedMs)} ms
+              </Text>
+            )}
+          </>
+        }
+      />
+      {failure ? (
+        isUnavailable(failure) ? (
+          <LoadError what="databases" error={failure} />
         ) : (
-          <div className="body-empty">Run a query against {db}. Writes (INSERT/UPDATE/DELETE) report affected rows.</div>
-        )}
-      </div>
-    </div>
+          <Banner tone="fail" title="Could not run the query">
+            {errorMessage(failure)}
+          </Banner>
+        )
+      ) : result?.error ? (
+        <Banner tone="fail" title="The query failed">
+          <Text variant="mono">{result.error}</Text>
+        </Banner>
+      ) : result && result.columns.length ? (
+        <FlushCard title="Result" hint={plural(result.rows.length, 'row')}>
+          <ResultTable result={result} rowOffset={0} />
+        </FlushCard>
+      ) : result ? (
+        <Banner tone="pass" title="The statement ran">
+          {result.affectedRows != null ? `${plural(result.affectedRows, 'row')} changed.` : 'No rows came back.'}
+        </Banner>
+      ) : (
+        <Text variant="small" tone="muted">
+          Runs against {db} on the device. INSERT, UPDATE and DELETE report how many rows they changed.
+        </Text>
+      )}
+    </Stack>
   );
 }
 
-function fmtCell(v: Cell): ReactNode {
-  if (v === null) return <span className="null">NULL</span>;
-  if (typeof v === 'number') return v;
-  return v.length > 140 ? v.slice(0, 140) + '…' : v;
-}
-
-function ResultGrid({
-  result,
-  rowOffset,
-  sort,
-  onSort,
-}: {
-  result: QueryResult;
-  rowOffset: number;
-  sort?: { col: string; desc: boolean } | null;
-  onSort?: (col: string) => void;
-}) {
+function ResultTable({ result, rowOffset, sort, onSort }: { result: QueryResult; rowOffset: number; sort?: { key: string; dir: 'asc' | 'desc' } | null; onSort?: (col: string) => void }) {
   const [cell, setCell] = useState<{ col: string; value: Cell } | null>(null);
   return (
     <>
-      <table className="grid data-grid mono">
+      <Table minWidth={Math.max(480, result.columns.length * 130)} density="dense" stickyHeader label="Rows">
         <thead>
           <tr>
-            <th className="rownum">#</th>
-            {result.columns.map((c) => (
-              <th key={c} className={onSort ? 'sortable' : undefined} onClick={onSort ? () => onSort(c) : undefined} aria-sort={sort?.col === c ? (sort.desc ? 'descending' : 'ascending') : undefined}>
-                {c}
-                {sort?.col === c && <Icon name={sort.desc ? 'arrow-down' : 'arrow-up'} size={11} />}
-              </th>
-            ))}
+            <th className={numCell}>#</th>
+            {result.columns.map((c) =>
+              onSort ? <SortTh key={c} label={c} sortKey={c} sort={sort ?? { key: '', dir: 'asc' }} onSort={onSort} /> : <th key={c}>{c}</th>,
+            )}
           </tr>
         </thead>
         <tbody>
+          {result.rows.length === 0 && <TableEmptyRow colSpan={result.columns.length + 1}>No rows.</TableEmptyRow>}
           {result.rows.map((row, i) => (
             <tr key={i}>
-              <td className="rownum tnum">{rowOffset + i + 1}</td>
+              <td className={numCell}>
+                <Text variant="meta">{fmt(rowOffset + i + 1)}</Text>
+              </td>
               {row.map((v, j) => (
-                <td
-                  key={j}
-                  className={typeof v === 'number' ? 'num' : undefined}
-                  title={looksLikeEpochMs(v) ? fmtDateTime(v, true) : typeof v === 'string' && v.length > 40 ? 'Click to view' : undefined}
-                  onClick={() => setCell({ col: result.columns[j], value: v })}
-                >
-                  {fmtCell(v)}
+                <td key={j} className={typeof v === 'number' ? numCell : undefined}>
+                  <span
+                    className={v === null ? `${s.cell} ${s.null}` : s.cell}
+                    title={looksLikeEpochMs(v) ? fmtDateTime(v, true) : typeof v === 'string' && v.length > 40 ? 'Open the full value' : undefined}
+                    onClick={() => setCell({ col: result.columns[j], value: v })}
+                  >
+                    {v === null ? 'NULL' : String(v)}
+                  </span>
                 </td>
               ))}
             </tr>
           ))}
         </tbody>
-      </table>
-      {result.truncated && <div className="notice notice-warn">Result truncated by the device.</div>}
-      {cell && <CellModal col={cell.col} value={cell.value} onClose={() => setCell(null)} />}
+      </Table>
+      {result.truncated && (
+        <div style={{ padding: 12 }}>
+          <Text variant="small" tone="muted">
+            ! The device cut the result short.
+          </Text>
+        </div>
+      )}
+      {cell && (
+        <KDialog open onClose={() => setCell(null)} title={cell.col} subtitle={looksLikeEpochMs(cell.value) ? `${fmtDateTime(cell.value, true)} (epoch milliseconds)` : undefined} width={640}>
+          {(() => {
+            const text = cell.value === null ? 'NULL' : String(cell.value);
+            const json = typeof cell.value === 'string' ? tryParseJson(cell.value) : undefined;
+            return json !== undefined ? (
+              <JsonBlock value={json} label="Value · JSON" expandDepth={3} />
+            ) : (
+              <ConsoleBlock label="Value" copy={text}>
+                <ConsolePre>{text}</ConsolePre>
+              </ConsoleBlock>
+            );
+          })()}
+        </KDialog>
+      )}
     </>
   );
 }
 
-function CellModal({ col, value, onClose }: { col: string; value: Cell; onClose: () => void }) {
-  const text = value === null ? 'NULL' : String(value);
-  const json = typeof value === 'string' ? tryParseJson(value) : undefined;
-  return (
-    <Modal title={<span className="mono">{col}</span>} onClose={onClose} width={640} footer={<CopyButton text={text} label="Copy value" showLabel />}>
-      {looksLikeEpochMs(value) && <p className="muted">{fmtDateTime(value, true)} (epoch ms)</p>}
-      {json !== undefined ? <JsonTree value={json} expandDepth={3} /> : <pre className="raw mono">{text}</pre>}
-    </Modal>
-  );
-}
-
-// ================================================================== files ==
+// ================================================================ files --
 
 function FilesView({ root, path }: { root: string | null; path: string }) {
-  const embed = useStore(appStore, (s) => s.embed);
-  const roots = useAsync((s) => api.get<FileRoot[]>('files/roots', undefined, s), []);
+  const embed = useStore(appStore, (x) => x.embed);
+  const roots = useAsync((sig) => api.get<FileRoot[]>('files/roots', undefined, sig), []);
+  const list = useAsync((sig) => (root ? api.get<FileEntry[]>('files', { root, path }, sig) : Promise.resolve([] as FileEntry[])), [root, path]);
   const [open, setOpen] = useState<FileEntry | null>(null);
-  const list = useAsync(
-    (s) => (root ? api.get<FileEntry[]>('files', { root, path }, s) : Promise.resolve([] as FileEntry[])),
-    [root, path],
-  );
   useEffect(() => {
     if (!root && roots.data?.length) navigate(routePath('storage', 'files', roots.data[0].id), { replace: true });
   }, [root, roots.data]);
   useEffect(() => setOpen(null), [root, path]);
-
-  if (roots.error) return <Unavailable what="Files" error={roots.error} />;
-  if (!roots.data) return <Loading />;
-  if (!roots.data.length) return <EmptyState icon="folder" title="No file roots exposed" />;
+  if (roots.error) return <LoadError what="files" error={roots.error} onRetry={roots.reload} />;
+  if (!roots.data) return <EmptyState>Loading files…</EmptyState>;
+  if (!roots.data.length) return <EmptyState title="No folders shared">The app shares no folder with Killcam.</EmptyState>;
   const rootInfo = roots.data.find((r) => r.id === root) ?? null;
   const segs = path.split('/').filter(Boolean);
   const go = (p: string) => navigate(routePath('storage', 'files', root, ...p.split('/').filter(Boolean)));
-
   const remove = async (f: FileEntry) => {
-    if (!(await confirmDialog({ title: `Delete ${f.dir ? 'folder' : 'file'} “${f.name}”?`, message: f.dir ? 'Deletes the folder and everything in it on the device.' : 'Deletes the file on the device.', confirmLabel: 'Delete', danger: true }))) return;
+    const ok = await confirmDialog({ title: `Delete “${f.name}”?`, message: f.dir ? 'Deletes the folder and everything in it, on the device.' : 'Deletes the file on the device.', confirmLabel: f.dir ? 'Delete folder' : 'Delete file', danger: true });
+    if (!ok) return;
     try {
       await api.del('files', { root, path: f.path });
       if (open?.path === f.path) setOpen(null);
       list.reload();
       toast(`Deleted ${f.name}`, 'ok');
     } catch (e) {
-      toast(`Delete failed: ${errorMessage(e)}`, 'error');
+      toast(`Could not delete ${f.name}: ${errorMessage(e)}`, 'error');
     }
   };
-
-  const browser = (
-    <div className="list-pane">
-      <div className="toolbar">
-        <select className="select" value={root ?? ''} aria-label="Root" onChange={(e) => navigate(routePath('storage', 'files', e.target.value))}>
-          {roots.data.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.label}
-            </option>
-          ))}
-        </select>
-        <nav className="crumbs mono" aria-label="Path">
-          <button type="button" className="crumb" onClick={() => go('')} title={rootInfo?.path}>
-            {rootInfo?.path.split('/').pop() || root}
-          </button>
-          {segs.map((s, i) => (
-            <span key={i}>
-              <Icon name="chevron-right" size={11} />
-              <button type="button" className="crumb" onClick={() => go(segs.slice(0, i + 1).join('/'))}>
-                {s}
-              </button>
+  const download = (f: FileEntry) => {
+    const a = document.createElement('a');
+    a.href = apiUrl('files/content', { root, path: f.path, download: 1 });
+    a.download = f.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+  return (
+    <Stack gap={14}>
+      <Row gap={10} wrap>
+        <SelectField label="Folder" value={root ?? ''} options={roots.data.map((r) => ({ value: r.id, label: r.label }))} onChange={(v) => navigate(routePath('storage', 'files', v))} />
+        <nav className={s.crumbs} aria-label="Path">
+          <Button variant="quiet" onClick={() => go('')} title={rootInfo?.path}>
+            {rootInfo?.path ?? root}
+          </Button>
+          {segs.map((sg, i) => (
+            <span key={i} style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <span className={s.sep}>/</span>
+              <Button variant="quiet" onClick={() => go(segs.slice(0, i + 1).join('/'))}>
+                {sg}
+              </Button>
             </span>
           ))}
         </nav>
-        <span className="grow" />
-        <IconButton icon="refresh" label="Reload" onClick={list.reload} />
-      </div>
-      <div className="scroll">
-        {list.error ? (
-          <Unavailable what="Files" error={list.error} />
-        ) : !list.data ? (
-          <Loading />
-        ) : !list.data.length ? (
-          <EmptyState icon="folder" title="Empty folder" />
-        ) : (
-          <div className="table-scroll">
-            <table className="grid files">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th className="num">Size</th>
-                  <th>Modified</th>
-                  <th aria-label="Actions" />
+        <Spacer />
+        <IconBtn icon="refresh" outlined label="Reload" onClick={list.reload} />
+      </Row>
+      {list.error ? (
+        <LoadError what="files" error={list.error} onRetry={list.reload} />
+      ) : (
+        <FlushCard>
+          <Table minWidth={embed ? 320 : 640} label="Files">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th className={numCell}>Size</th>
+                {!embed && <th>Modified</th>}
+                <th aria-label="Actions" />
+              </tr>
+            </thead>
+            <tbody>
+              {segs.length > 0 && (
+                <tr onClick={() => go(segs.slice(0, -1).join('/'))} style={{ cursor: 'pointer' }}>
+                  <td colSpan={embed ? 3 : 4}>
+                    <Row gap={8}>
+                      <KIcon name="back" size={14} />
+                      <Text variant="mono">..</Text>
+                    </Row>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {segs.length > 0 && (
-                  <tr className="clickable" onClick={() => go(segs.slice(0, -1).join('/'))}>
-                    <td colSpan={4}>
-                      <span className="file-name">
-                        <Icon name="back" size={14} /> ..
-                      </span>
+              )}
+              {!list.data ? (
+                <TableEmptyRow colSpan={embed ? 3 : 4}>Loading…</TableEmptyRow>
+              ) : list.data.length === 0 ? (
+                <TableEmptyRow colSpan={embed ? 3 : 4}>This folder is empty.</TableEmptyRow>
+              ) : (
+                list.data.map((f) => (
+                  <tr key={f.path} aria-current={open?.path === f.path || undefined} onClick={() => (f.dir ? go(f.path) : setOpen(f))} style={{ cursor: 'pointer' }}>
+                    <td style={{ maxWidth: 360 }}>
+                      <Row gap={8}>
+                        <KIcon name={f.dir ? 'folder' : 'file'} size={14} />
+                        <Text variant="mono" tone="primary" truncate>
+                          {f.name}
+                        </Text>
+                      </Row>
+                    </td>
+                    <td className={numCell}>{f.dir ? '–' : fmtBytes(f.size)}</td>
+                    {!embed && (
+                      <td>
+                        <Text variant="small" nowrap>
+                          {fmtDateTime(f.modifiedMs)}
+                        </Text>
+                      </td>
+                    )}
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <Row gap={4}>
+                        {!f.dir && !embed && (
+                          <Button variant="mini" onClick={() => download(f)}>
+                            Download
+                          </Button>
+                        )}
+                        <IconBtn icon="trash" size={embed ? 'lg' : 'md'} label={`Delete ${f.name}`} onClick={() => void remove(f)} />
+                      </Row>
                     </td>
                   </tr>
-                )}
-                {list.data.map((f) => (
-                  <tr key={f.path} className={['clickable', open?.path === f.path ? 'sel' : ''].join(' ')} onClick={() => (f.dir ? go(f.path) : setOpen(f))}>
-                    <td>
-                      <span className="file-name">
-                        <Icon name={f.dir ? 'folder' : 'file'} size={14} className={f.dir ? 'text-accent' : undefined} />
-                        <span className="mono">{f.name}</span>
-                      </span>
-                    </td>
-                    <td className="num tnum">{f.dir ? '' : fmtBytes(f.size)}</td>
-                    <td className="tnum muted">{fmtDateTime(f.modifiedMs)}</td>
-                    <td className="row-actions" onClick={(e) => e.stopPropagation()}>
-                      {!f.dir && !embed && (
-                        <a className="btn btn-icon" href={apiUrl('files/content', { root, path: f.path, download: 1 })} download={f.name} aria-label={`Download ${f.name}`} title="Download">
-                          <Icon name="download" />
-                        </a>
-                      )}
-                      <IconButton icon="trash" label={`Delete ${f.name}`} onClick={() => remove(f)} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="panel">
-      <SplitView
-        storageKey="files"
-        open={!!open}
-        list={browser}
-        detail={open && root && <FileViewer key={open.path} root={root} file={open} onClose={() => setOpen(null)} onDelete={() => remove(open)} embed={embed} />}
-      />
-    </div>
+                ))
+              )}
+            </tbody>
+          </Table>
+        </FlushCard>
+      )}
+      {open && root && <FileViewer key={open.path} root={root} file={open} onClose={() => setOpen(null)} onDelete={() => void remove(open)} onDownload={embed ? undefined : () => download(open)} />}
+    </Stack>
   );
 }
 
 const TEXT_EXT = /\.(txt|log|json|xml|md|csv|html?|js|css|properties|ya?ml|ini|conf|pem|lock|journal)$/i;
 
-function FileViewer({ root, file, onClose, onDelete, embed }: { root: string; file: FileEntry; onClose: () => void; onDelete: () => void; embed: boolean }) {
+function FileViewer({ root, file, onClose, onDelete, onDownload }: { root: string; file: FileEntry; onClose: () => void; onDelete: () => void; onDownload?: () => void }) {
   const [force, setForce] = useState(false);
   const tooBig = file.size > 1024 * 1024 && !force;
-  const content = useAsync(
-    (s) => (tooBig ? Promise.resolve(null) : api.bytes('files/content', { root, path: file.path }, s)),
-    [root, file.path, tooBig],
-  );
+  const content = useAsync((sig) => (tooBig ? Promise.resolve(null) : api.bytes('files/content', { root, path: file.path }, sig)), [root, file.path, tooBig]);
   const decoded = useMemo(() => {
-    const buf = content.data;
-    if (!buf) return null;
-    const bytes = new Uint8Array(buf);
-    const head = bytes.subarray(0, 8192);
-    const binary = head.includes(0) && !TEXT_EXT.test(file.name);
-    if (binary) {
-      let hex = '';
-      for (let off = 0; off < Math.min(bytes.length, 512); off += 16) {
-        const chunk = [...bytes.subarray(off, off + 16)];
-        hex += `${off.toString(16).padStart(6, '0')}  ${chunk.map((b) => b.toString(16).padStart(2, '0')).join(' ').padEnd(47)}  ${chunk.map((b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : '.')).join('')}\n`;
-      }
-      return { binary: true as const, text: hex };
-    }
+    if (!content.data) return null;
+    const bytes = new Uint8Array(content.data);
+    if (bytes.subarray(0, 8192).includes(0) && !TEXT_EXT.test(file.name)) return { binary: true as const, text: hexDump(bytes, 512) };
     return { binary: false as const, text: new TextDecoder().decode(bytes) };
   }, [content.data, file.name]);
   const json = decoded && !decoded.binary ? tryParseJson(decoded.text) : undefined;
-  const [mode, setMode] = useState<'tree' | 'raw'>('tree');
-  const preRef = useRef<HTMLPreElement>(null);
   return (
-    <div className="detail">
-      <div className="detail-head">
-        <IconButton icon="back" label="Close file" onClick={onClose} className="detail-back" />
-        <Icon name="file" />
-        <div className="detail-title mono" title={file.path}>
-          {file.name}
-        </div>
-        <span className="muted tnum">{fmtBytes(file.size)}</span>
-        {decoded && !decoded.binary && <CopyButton text={decoded.text} label="Copy contents" />}
-        {!embed && (
-          <a className="btn btn-icon" href={apiUrl('files/content', { root, path: file.path, download: 1 })} download={file.name} aria-label="Download" title="Download">
-            <Icon name="download" />
-          </a>
-        )}
-        <IconButton icon="trash" label="Delete file" onClick={onDelete} />
-        <IconButton icon="x" label="Close file" onClick={onClose} className="detail-close" />
-      </div>
-      <div className="detail-body">
-        <p className="muted small mono">
-          {file.path} · modified {fmtDateTime(file.modifiedMs, true)}
-        </p>
-        {tooBig ? (
-          <EmptyState icon="file" title={`Large file (${fmtBytes(file.size)})`}>
-            <button type="button" className="link-btn" onClick={() => setForce(true)}>
-              Load it anyway
-            </button>
-          </EmptyState>
-        ) : content.error ? (
-          <Unavailable what="Files" error={content.error} />
-        ) : !decoded ? (
-          <Loading />
-        ) : decoded.binary ? (
-          <>
-            <div className="notice">Binary file: first 512 bytes shown{embed ? '' : '. Download it to inspect the rest'}.</div>
-            <pre className="raw mono muted">{decoded.text}</pre>
-          </>
-        ) : json !== undefined ? (
-          <>
-            <Segmented<'tree' | 'raw'> size="sm" label="View" value={mode} onChange={setMode} options={[{ value: 'tree', label: 'Tree' }, { value: 'raw', label: 'Raw' }]} />
-            {mode === 'tree' ? <JsonTree value={json} expandDepth={2} /> : <pre className="raw mono">{decoded.text}</pre>}
-          </>
-        ) : (
-          <pre ref={preRef} className="raw mono">
-            {decoded.text || <span className="muted">(empty file)</span>}
-          </pre>
-        )}
-      </div>
-    </div>
+    <Dock
+      label="File"
+      title={file.name}
+      subtitle={`${fmtBytes(file.size)} · modified ${fmtDateTime(file.modifiedMs, true)}`}
+      closeOnBack
+      onClose={onClose}
+      actions={
+        <>
+          {onDownload && (
+            <Button variant="mini" onClick={onDownload}>
+              Download
+            </Button>
+          )}
+          <IconBtn icon="trash" label="Delete file" onClick={onDelete} />
+        </>
+      }
+    >
+      <Text variant="mono" breakAnywhere>
+        {file.path}
+      </Text>
+      {tooBig ? (
+        <EmptyState title={`A large file: ${fmtBytes(file.size)}`} actions={<Button variant="outline" onClick={() => setForce(true)}>Load it anyway</Button>} />
+      ) : content.error ? (
+        <LoadError what="files" error={content.error} onRetry={content.reload} />
+      ) : !decoded ? (
+        <Text variant="small">Loading…</Text>
+      ) : decoded.binary ? (
+        <ConsoleBlock label={`Binary · first ${fmt(Math.min(512, file.size))} bytes`}>
+          <ConsolePre>{decoded.text}</ConsolePre>
+        </ConsoleBlock>
+      ) : json !== undefined ? (
+        <JsonBlock value={json} label={`${file.name} · JSON`} />
+      ) : (
+        <ConsoleBlock label={file.name} copy={decoded.text}>
+          <ConsolePre>{decoded.text || '(empty file)'}</ConsolePre>
+        </ConsoleBlock>
+      )}
+    </Dock>
   );
 }
+

@@ -1,18 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Badge, Button, EmptyState, FlushCard, Row, SearchInput, Spacer, Stack, Table, Text, ToggleChip } from '@/design';
 import { api, errorMessage } from '../api/client';
 import { liveStore, reloadFlags } from '../api/live';
-import type { Flag } from '../api/types';
-import { Icon } from '../components/Icon';
-import { tryParseJson } from '../components/JsonTree';
-import { Chip, EmptyState, IconButton, Loading, Modal, SearchInput, Switch } from '../components/ui';
-import { navigate, useRoute } from '../state/router';
+import type { Flag, FlagSource } from '../api/types';
+import { ValueEditor } from '../kit/editors';
+import { fmt, plural } from '../lib/format';
+import { appStore } from '../state/app';
+import { useRoute } from '../state/router';
 import { useStore } from '../state/store';
 import { confirmDialog, toast } from '../state/ui';
 
 async function setFlag(key: string, value: string): Promise<boolean> {
   try {
     const updated = await api.put<Flag>('flags', { key, value });
-    // Apply locally right away; the SSE `flags` event will confirm.
     const flags = liveStore.get().flags;
     if (flags && updated?.key) liveStore.set({ flags: flags.map((f) => (f.key === updated.key ? updated : f)) });
     return true;
@@ -26,36 +26,40 @@ async function resetFlag(key: string | null): Promise<void> {
   try {
     await api.del('flags', key ? { key } : undefined);
     await reloadFlags();
-    toast(key ? `${key} reset` : 'All overrides cleared', 'ok');
+    toast(key ? `${key} is back to its remote or default value` : 'Every override is cleared', 'ok');
   } catch (e) {
-    toast(`Reset failed: ${errorMessage(e)}`, 'error');
+    toast(`Could not reset: ${errorMessage(e)}`, 'error');
   }
 }
 
+const SOURCE: Record<FlagSource, { tone: 'accent' | 'c1' | 'neutral'; word: string }> = {
+  override: { tone: 'accent', word: 'Override' },
+  remote: { tone: 'c1', word: 'Remote' },
+  default: { tone: 'neutral', word: 'Default' },
+};
+
 export function FlagsPanel() {
-  const flags = useStore(liveStore, (s) => s.flags);
-  // #/flags/<key> (from Remote Config's "Override") filters to that key and highlights it.
-  const focusKey = useRoute().parts[0] ?? null;
-  const [q, setQ] = useState(focusKey ?? '');
-  useEffect(() => {
-    if (focusKey) setQ(focusKey);
-  }, [focusKey]);
+  const flags = useStore(liveStore, (x) => x.flags);
+  const embed = useStore(appStore, (x) => x.embed);
+  const { focus } = useRoute();
+  const [q, setQ] = useState('');
   const [overridesOnly, setOverridesOnly] = useState(false);
-  const [jsonEdit, setJsonEdit] = useState<Flag | null>(null);
 
   useEffect(() => {
     if (!flags) reloadFlags().catch(() => undefined);
   }, [flags]);
+  // A link to one flag (from Remote Config) must find it on the page.
+  useEffect(() => {
+    if (focus?.startsWith('flag:')) {
+      setQ('');
+      setOverridesOnly(false);
+    }
+  }, [focus]);
 
   const groups = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const list = (flags ?? []).filter(
-      (f) =>
-        (!overridesOnly || f.override != null) &&
-        (!needle ||
-          f.key.toLowerCase().includes(needle) ||
-          (f.description ?? '').toLowerCase().includes(needle) ||
-          f.value.toLowerCase().includes(needle)),
+      (f) => (!overridesOnly || f.override != null) && (!needle || f.key.toLowerCase().includes(needle) || (f.description ?? '').toLowerCase().includes(needle) || f.value.toLowerCase().includes(needle)),
     );
     const map = new Map<string, Flag[]>();
     for (const f of list) {
@@ -66,222 +70,133 @@ export function FlagsPanel() {
     return [...map.entries()].sort(([a], [b]) => (a === 'Other' ? 1 : b === 'Other' ? -1 : a.localeCompare(b)));
   }, [flags, q, overridesOnly]);
 
-  const overrideCount = flags?.filter((f) => f.override != null).length ?? 0;
+  if (!flags) return <EmptyState>Loading flags…</EmptyState>;
+  if (!flags.length) {
+    return (
+      <EmptyState title="No flags declared">
+        Flags appear here once the app reads them through Killcam, for example Killcam.booleanFlag("pay.new_pin_pad", default = false). Firebase Remote Config keys appear
+        automatically when the app has firebase-config.
+      </EmptyState>
+    );
+  }
+  const overrides = flags.filter((f) => f.override != null).length;
+  const shown = groups.reduce((a, [, l]) => a + l.length, 0);
 
   return (
-    <div className="panel">
-      <div className="list-pane">
-        <div className="toolbar">
-          <SearchInput
-            value={q}
-            onChange={(v) => {
-              setQ(v);
-              if (focusKey && v !== focusKey) navigate('flags', { replace: true });
-            }}
-            placeholder="Search flags"
-          />
-          <Chip on={overridesOnly} onClick={() => setOverridesOnly(!overridesOnly)}>
-            Overrides {overrideCount}
-          </Chip>
-          <span className="grow" />
-          <span className="count">{flags?.length ?? 0} flags</span>
-          <button
-            type="button"
-            className="btn"
-            disabled={!overrideCount}
-            onClick={async () => {
-              if (await confirmDialog({ title: 'Reset all overrides?', message: `Clears ${overrideCount} local override${overrideCount === 1 ? '' : 's'}; flags fall back to remote or default values.`, confirmLabel: 'Reset all', danger: true }))
-                void resetFlag(null);
-            }}
-          >
-            <Icon name="refresh" size={14} />
-            <span>Reset all overrides</span>
-          </button>
-        </div>
-        <div className="scroll">
-          {!flags ? (
-            <Loading />
-          ) : flags.length === 0 ? (
-            <EmptyState icon="flag" title="No feature flags registered">
-              The app has not registered a flag provider with Killcam.
-            </EmptyState>
-          ) : groups.length === 0 ? (
-            <EmptyState icon="search" title="No flags match" />
-          ) : (
-            <div className="table-scroll">
-              <table className="grid flags">
+    <Stack as="section" gap={20}>
+      <Row gap={10} wrap>
+        <SearchInput label="Search flags" placeholder="Search keys, descriptions and values" value={q} onChange={setQ} />
+        <ToggleChip pressed={overridesOnly} onClick={() => setOverridesOnly(!overridesOnly)} count={overrides}>
+          Overrides only
+        </ToggleChip>
+        <Text variant="small" tone="muted">
+          {shown === flags.length ? plural(flags.length, 'flag') : `${fmt(shown)} of ${plural(flags.length, 'flag')}`}
+        </Text>
+        <Spacer />
+        <Button
+          size="sm"
+          disabled={!overrides}
+          onClick={async () => {
+            const ok = await confirmDialog({ title: 'Reset every override?', message: `Clears ${plural(overrides, 'override')}. Each flag goes back to its remote value, or its default.`, confirmLabel: 'Reset all', danger: true });
+            if (ok) void resetFlag(null);
+          }}
+        >
+          Reset all overrides
+        </Button>
+      </Row>
+      {groups.length === 0 ? (
+        <EmptyState title="No flags match" actions={<Button variant="outline" onClick={() => (setQ(''), setOverridesOnly(false))}>Clear the search</Button>} />
+      ) : (
+        groups.map(([group, list]) => (
+          <FlushCard key={group} title={group} hint={plural(list.length, 'flag')}>
+            {embed ? (
+              list.map((f) => <FlagCardRow key={f.key} flag={f} />)
+            ) : (
+              <Table minWidth={980} label={`${group} flags`}>
                 <thead>
                   <tr>
                     <th>Flag</th>
                     <th>Type</th>
                     <th>Default</th>
                     <th>Remote</th>
-                    <th className="col-value">Value</th>
+                    <th>Value</th>
                     <th>Source</th>
                     <th aria-label="Reset" />
                   </tr>
                 </thead>
-                {groups.map(([group, list]) => (
-                  <tbody key={group}>
-                    <tr className="group-row">
-                      <th colSpan={7}>
-                        {group} <span className="muted">{list.length}</span>
-                      </th>
+                <tbody>
+                  {list.map((f) => (
+                    <tr key={f.key} data-hl={`flag:${f.key}`}>
+                      <td style={{ maxWidth: 340 }}>
+                        <Stack gap={2}>
+                          <Text variant="mono" tone="primary" weight={600} breakAnywhere>
+                            {f.key}
+                          </Text>
+                          {f.description && <Text variant="meta">{f.description}</Text>}
+                        </Stack>
+                      </td>
+                      <td>
+                        <Badge>{f.type}</Badge>
+                      </td>
+                      <td style={{ maxWidth: 180 }}>
+                        <Text variant="mono" truncate title={f.defaultValue}>
+                          {f.defaultValue || '–'}
+                        </Text>
+                      </td>
+                      <td style={{ maxWidth: 180 }}>
+                        <Text variant="mono" truncate title={f.remoteValue ?? undefined}>
+                          {f.remoteValue ?? '–'}
+                        </Text>
+                      </td>
+                      <td style={{ minWidth: 220 }}>
+                        <ValueEditor type={f.type} value={f.value} options={f.options} label={f.key} onSave={(v) => setFlag(f.key, v)} />
+                      </td>
+                      <td>
+                        <Badge tone={SOURCE[f.source].tone}>{SOURCE[f.source].word}</Badge>
+                      </td>
+                      <td>
+                        {f.override != null && (
+                          <Button variant="quiet" onClick={() => void resetFlag(f.key)} title={`Clear the override on ${f.key}`}>
+                            Reset
+                          </Button>
+                        )}
+                      </td>
                     </tr>
-                    {list.map((f) => (
-                      <FlagRow key={f.key} flag={f} focused={f.key === focusKey} onEditJson={() => setJsonEdit(f)} />
-                    ))}
-                  </tbody>
-                ))}
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-      {jsonEdit && <JsonFlagEditor flag={jsonEdit} onClose={() => setJsonEdit(null)} />}
-    </div>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </FlushCard>
+        ))
+      )}
+    </Stack>
   );
 }
 
-function FlagRow({ flag: f, focused, onEditJson }: { flag: Flag; focused: boolean; onEditJson: () => void }) {
-  const ref = useRef<HTMLTableRowElement>(null);
-  useEffect(() => {
-    if (focused) ref.current?.scrollIntoView({ block: 'center' });
-  }, [focused]);
+/** Phone: one flag per row, the editor under its name. */
+function FlagCardRow({ flag: f }: { flag: Flag }) {
   return (
-    <tr ref={ref} className={[f.override != null ? 'overridden' : '', focused ? 'focused' : ''].join(' ')}>
-      <td className="flag-key">
-        <span className="mono">{f.key}</span>
-        {f.description && <small>{f.description}</small>}
-      </td>
-      <td>
-        <span className="badge">{f.type}</span>
-      </td>
-      <td className="mono clip" title={f.defaultValue}>
-        {f.defaultValue}
-      </td>
-      <td className="mono clip" title={f.remoteValue ?? undefined}>
-        {f.remoteValue ?? <span className="muted">—</span>}
-      </td>
-      <td className="col-value">
-        <FlagEditor flag={f} onEditJson={onEditJson} />
-      </td>
-      <td>
-        <span className={`badge src-${f.source}`}>{f.source}</span>
-      </td>
-      <td>
-        {f.override != null && <IconButton icon="refresh" label={`Reset ${f.key} override`} onClick={() => resetFlag(f.key)} />}
-      </td>
-    </tr>
-  );
-}
-
-function FlagEditor({ flag: f, onEditJson }: { flag: Flag; onEditJson: () => void }) {
-  const [draft, setDraft] = useState(f.value);
-  useEffect(() => setDraft(f.value), [f.value]);
-  if (f.type === 'boolean') {
-    return (
-      <span className="flag-bool">
-        <Switch checked={f.value === 'true'} onChange={(v) => setFlag(f.key, String(v))} label={`${f.key}: ${f.value}`} />
-        <span className="mono muted">{f.value}</span>
-      </span>
-    );
-  }
-  if (f.options && f.options.length) {
-    return (
-      <select className="select mono" value={f.value} onChange={(e) => setFlag(f.key, e.target.value)} aria-label={f.key}>
-        {!f.options.includes(f.value) && <option value={f.value}>{f.value}</option>}
-        {f.options.map((o) => (
-          <option key={o}>{o}</option>
-        ))}
-      </select>
-    );
-  }
-  if (f.type === 'json') {
-    return (
-      <button type="button" className="json-value mono" onClick={onEditJson} title="Edit JSON">
-        <span className="clip">{f.value}</span>
-        <Icon name="edit" size={13} />
-      </button>
-    );
-  }
-  const numeric = f.type === 'int' || f.type === 'double';
-  const valid = !numeric || (f.type === 'int' ? /^-?\d+$/.test(draft.trim()) : draft.trim() !== '' && !Number.isNaN(Number(draft)));
-  const commit = async () => {
-    if (draft === f.value) return;
-    if (!valid) {
-      toast(`${f.key} expects ${f.type === 'int' ? 'an integer' : 'a number'}`, 'error');
-      setDraft(f.value);
-      return;
-    }
-    if (!(await setFlag(f.key, numeric ? draft.trim() : draft))) setDraft(f.value);
-  };
-  return (
-    <input
-      className={valid ? 'input mono flag-input' : 'input mono flag-input invalid'}
-      value={draft}
-      inputMode={numeric ? (f.type === 'int' ? 'numeric' : 'decimal') : undefined}
-      aria-label={f.key}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-        if (e.key === 'Escape') setDraft(f.value);
-      }}
-      spellCheck={false}
-    />
-  );
-}
-
-function JsonFlagEditor({ flag, onClose }: { flag: Flag; onClose: () => void }) {
-  const [text, setText] = useState(() => {
-    const v = tryParseJson(flag.value, 'application/json');
-    return v === undefined ? flag.value : JSON.stringify(v, null, 2);
-  });
-  const valid = tryParseJson(text, 'application/json') !== undefined;
-  const save = async () => {
-    const v = tryParseJson(text, 'application/json');
-    if (v === undefined) return;
-    if (await setFlag(flag.key, JSON.stringify(v))) onClose();
-  };
-  return (
-    <Modal
-      title={
-        <span>
-          Edit <span className="mono">{flag.key}</span>
-        </span>
-      }
-      onClose={onClose}
-      width={640}
-      footer={
-        <>
-          <span className={valid ? 'test-ok' : 'test-no'}>
-            <Icon name={valid ? 'check' : 'warning'} size={13} /> {valid ? 'valid JSON' : 'invalid JSON'}
-          </span>
-          <span className="grow" />
-          <button type="button" className="btn" disabled={!valid} onClick={() => setText(JSON.stringify(JSON.parse(text), null, 2))}>
-            Format
-          </button>
-          <button type="button" className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="button" className="btn primary" disabled={!valid} onClick={save}>
-            Set override
-          </button>
-        </>
-      }
-    >
-      {flag.description && <p className="dialog-msg">{flag.description}</p>}
-      <textarea className="input mono body-edit" rows={14} value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} />
-      <p className="muted small">
-        Default: <span className="mono">{flag.defaultValue}</span>
-        {flag.remoteValue && (
-          <>
-            <br />
-            Remote: <span className="mono">{flag.remoteValue}</span>
-          </>
+    <div data-hl={`flag:${f.key}`} style={{ padding: '12px 16px', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <Stack gap={2}>
+        <Text variant="mono" tone="primary" weight={600} breakAnywhere>
+          {f.key}
+        </Text>
+        {f.description && <Text variant="meta">{f.description}</Text>}
+      </Stack>
+      <ValueEditor type={f.type} value={f.value} options={f.options} label={f.key} onSave={(v) => setFlag(f.key, v)} />
+      <Row gap={8} wrap>
+        <Badge tone={SOURCE[f.source].tone}>{SOURCE[f.source].word}</Badge>
+        <Text variant="meta" truncate>
+          {f.type} · default {f.defaultValue || '–'}
+          {f.remoteValue != null ? ` · remote ${f.remoteValue}` : ''}
+        </Text>
+        <Spacer />
+        {f.override != null && (
+          <Button variant="quiet" onClick={() => void resetFlag(f.key)}>
+            Reset
+          </Button>
         )}
-      </p>
-    </Modal>
+      </Row>
+    </div>
   );
 }

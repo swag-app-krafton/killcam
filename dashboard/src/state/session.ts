@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo } from 'react';
 import { api, enc, errorMessage } from '../api/client';
-import { liveStore } from '../api/live';
+import { byTsSeq, liveStore } from '../api/live';
 import type {
   Crash,
   CrashSummary,
@@ -116,6 +116,7 @@ export function useSessionView(): SessionView {
       };
     }
     const b = entry?.bundle ?? null;
+    const tl = b ? sortedTimeline(b) : [];
     const fatal = b?.session.crash ?? b?.crashes.find((c) => c.fatal) ?? null;
     return {
       kind: 'saved',
@@ -130,12 +131,22 @@ export function useSessionView(): SessionView {
       network: b?.network ?? [],
       calls: b?.network ?? null,
       logs: b?.logs ?? [],
-      timeline: b?.timeline ?? [],
+      timeline: tl,
       crashes: b ? [...b.crashes].sort((x, y) => y.ts - x.ts) : [],
       fullCrashes: b?.crashes ?? null,
       sessionCrashes: b?.crashes ?? [],
     };
   }, [isLive, selected, entry, liveId, loaded, info, sessions, network, logs, timeline, crashes]);
+}
+
+const sortedCache = new WeakMap<SessionBundle, TimelineEvent[]>();
+function sortedTimeline(b: SessionBundle): TimelineEvent[] {
+  let t = sortedCache.get(b);
+  if (!t) {
+    t = [...b.timeline].sort(byTsSeq);
+    sortedCache.set(b, t);
+  }
+  return t;
 }
 
 function lastTs(b: SessionBundle): number {

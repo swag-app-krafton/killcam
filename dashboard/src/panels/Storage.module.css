@@ -1,0 +1,113 @@
+/* Storage: a list of stores beside the store's contents. */
+.layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.list {
+  display: flex;
+  flex-direction: column;
+}
+.item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--tx2);
+  text-align: left;
+  font: 400 13px var(--font-ui);
+  cursor: pointer;
+}
+.item:hover {
+  background: var(--s2);
+}
+.item[aria-current='true'] {
+  background: var(--s2);
+  color: var(--tx);
+  font-weight: 600;
+}
+.item[aria-current='true']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  background: var(--accent);
+}
+.sub {
+  padding-left: 30px;
+}
+.itemText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.name {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meta {
+  flex: none;
+  font: 400 11.5px var(--font-ui);
+  color: var(--tx3);
+  font-variant-numeric: tabular-nums;
+}
+.groupHead {
+  padding: 12px 16px 6px;
+  border-top: 1px solid var(--line);
+}
+.cell {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 12.5px var(--font-mono);
+  cursor: pointer;
+}
+.null {
+  color: var(--tx3);
+  font-style: italic;
+}
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.row {
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.sep {
+  color: var(--tx3);
+  padding: 0 2px;
+}
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .list {
+    max-height: 260px;
+    overflow-y: auto;
+  }
+}
