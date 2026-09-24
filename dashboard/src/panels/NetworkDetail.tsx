@@ -15,6 +15,7 @@ import { focusPath, navigate } from '../state/router';
 import type { SessionView } from '../state/session';
 import { createStore, useStore } from '../state/store';
 import s from './Network.module.css';
+import { RepeatButton } from './RepeatDialog';
 
 type Tab = 'overview' | 'request' | 'response' | 'curl';
 const tabStore = createStore<{ tab: Tab }>({ tab: 'overview' });
@@ -41,6 +42,11 @@ export function mockInputFromCall(c: NetworkCall): MockRuleInput {
     body,
     delayMs: 0,
     failure: 'timeout',
+    dropAfterBytes: 0,
+    times: 0,
+    probability: 100,
+    endpoint: null,
+    breakOn: 'request',
   };
 }
 
@@ -81,6 +87,7 @@ export function NetworkDetail({ summary, view, onClose, closeOnBack }: { summary
           <Button variant="mini" onClick={mockThis} disabled={!call} title="Create a mock rule that returns this response">
             Mock this
           </Button>
+          <RepeatButton call={call} live={live} />
         </>
       }
       bar={

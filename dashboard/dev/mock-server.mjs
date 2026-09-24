@@ -464,7 +464,11 @@ class Sim {
       reqBody ? [{ name: 'Content-Type', value: 'application/json; charset=utf-8' }] : [],
     );
     let rule = null;
-    if (this.live) rule = matchMock(method, spec.url);
+    let net = null;
+    if (this.live) {
+      net = planConditions();
+      rule = matchMock(method, spec.url);
+    }
     const call = {
       id: uid('net'),
       seq: nextSeq(),
@@ -493,9 +497,21 @@ class Sim {
     };
     this.s.network.push(call);
     cap(this.s.network, 1000);
+    if (this.live) callSpecs.set(call, spec);
     const duration = spec.duration ?? between(60, 900);
+    if (this.live && rule?.action === 'breakpoint' && !net?.failure) {
+      rule.hits++;
+      scheduleMocksBroadcast();
+      this.emit('network', netSummary(call));
+      holdAtBreakpoint(this, call, spec, rule, duration);
+      return call;
+    }
     const finish = () => {
-      if (rule) applyMock(call, rule, spec);
+      if (net?.failure) {
+        call.state = 'failed';
+        call.error = failureError(net.failure, call.host);
+        call.protocol = 'h2';
+      } else if (rule) applyMock(call, rule, spec);
       else completeCall(call, spec);
       // respond: after delayMs (0 = immediately); delay: delayMs then the real call; fail: after delayMs.
       call.durationMs = !rule ? duration : rule.action === 'delay' ? duration + rule.delayMs : rule.delayMs + 3;
@@ -509,7 +525,7 @@ class Sim {
       return call;
     }
     this.emit('network', netSummary(call));
-    const wait = !rule ? duration : rule.action === 'delay' ? duration + rule.delayMs : rule.delayMs + 3;
+    const wait = (net?.delayMs ?? 0) + (!rule ? duration : rule.action === 'delay' ? duration + rule.delayMs : rule.delayMs + 3);
     setTimeout(() => {
       if (!this.s.network.includes(call)) return;
       finish();
@@ -561,11 +577,19 @@ function applyMock(call, rule, spec) {
   call.protocol = 'h2';
   if (rule.action === 'fail') {
     call.state = 'failed';
-    call.error = {
-      timeout: 'java.net.SocketTimeoutException: timeout (Killcam mock)',
-      no_network: `java.net.UnknownHostException: Unable to resolve host "${call.host}": No address associated with hostname (Killcam mock)`,
-      connection_reset: 'java.net.SocketException: Connection reset (Killcam mock)',
-    }[rule.failure];
+    if (rule.failure === 'network_switch') {
+      // Headers and the first dropAfterBytes of the body arrive, then the socket aborts.
+      completeCall(call, spec);
+      call.state = 'failed';
+      call.error = 'SocketException: Software caused connection abort';
+      if (call.responseBody?.text != null) {
+        const text = call.responseBody.text.slice(0, rule.dropAfterBytes);
+        call.responseBody = { ...call.responseBody, text, truncated: true };
+      }
+      return;
+    }
+    call.state = 'failed';
+    call.error = failureError(rule.failure, call.host);
     return;
   }
   call.state = 'complete';
@@ -577,6 +601,167 @@ function applyMock(call, rule, spec) {
   call.responseBody = textBody(rule.body, type);
   call.responseSize = call.responseBody.size;
   call.responseHeaders = [...rule.headers, { name: 'x-killcam-mock', value: rule.name }];
+}
+
+// ------------------------------------------------------------- breakpoints --
+
+const callSpecs = new WeakMap(); // live call -> the spec that produced it (for Repeat)
+const held = new Map(); // paused id -> resume(request)
+
+function pauseCall(sim, call, rule, stage, onResume) {
+  const now = Date.now();
+  const p = {
+    id: uid('bp'),
+    callId: call.id,
+    ruleId: rule.id,
+    ruleName: rule.name,
+    stage,
+    pausedMs: now,
+    deadlineMs: now + 120_000,
+    method: call.method,
+    url: call.url,
+    requestHeaders: call.requestHeaders,
+    requestBody: call.requestBody?.text ?? null,
+    requestBodyEditable: call.method !== 'GET' && call.method !== 'HEAD',
+    status: stage === 'response' ? call.status : null,
+    responseHeaders: stage === 'response' ? call.responseHeaders : [],
+    responseBody: stage === 'response' ? (call.responseBody?.text ?? null) : null,
+    responseBodyEditable: stage === 'response' && call.responseBody?.text != null && !call.responseBody.truncated,
+  };
+  const done = (r) => {
+    clearTimeout(timer);
+    held.delete(p.id);
+    state.paused = state.paused.filter((x) => x.id !== p.id);
+    broadcast('breakpoints', state.paused);
+    onResume(r ?? { action: 'continue' });
+  };
+  const timer = setTimeout(() => done({ action: 'continue' }), 120_000);
+  held.set(p.id, done);
+  state.paused.push(p);
+  broadcast('breakpoints', state.paused);
+}
+
+function holdAtBreakpoint(sim, call, spec, rule, duration) {
+  const failWith = (r) => {
+    call.state = 'failed';
+    call.status = null;
+    call.error = failureError(r.failure ?? 'connection_reset', call.host) ?? 'SocketException: Software caused connection abort';
+    call.durationMs = Date.now() - call.startMs;
+    sim.emit('network', netSummary(call));
+  };
+  const respond = () => {
+    if (!sim.s.network.includes(call)) return;
+    completeCall(call, spec);
+    call.durationMs = Date.now() - call.startMs;
+    if (rule.breakOn === 'request' || call.state === 'failed') return sim.emit('network', netSummary(call));
+    pauseCall(sim, call, rule, 'response', (r) => {
+      if (r.action === 'fail') return failWith(r);
+      if (r.status) {
+        call.status = r.status;
+        call.responseMessage = httpReason(r.status);
+      }
+      if (r.headers) call.responseHeaders = r.headers;
+      if (r.body != null) call.responseBody = textBody(r.body, call.contentType ?? 'application/json');
+      call.durationMs = Date.now() - call.startMs;
+      sim.emit('network', netSummary(call));
+    });
+  };
+  if (rule.breakOn === 'response') return setTimeout(respond, duration);
+  pauseCall(sim, call, rule, 'request', (r) => {
+    if (r.action === 'fail') return failWith(r);
+    if (r.method) call.method = r.method;
+    if (r.url) {
+      try {
+        const u = new URL(r.url);
+        Object.assign(call, { url: r.url, host: u.host, scheme: u.protocol.replace(':', ''), path: u.pathname + u.search });
+      } catch {
+        /* keep the original URL */
+      }
+    }
+    if (r.headers) call.requestHeaders = r.headers;
+    if (r.body != null) call.requestBody = textBody(r.body, call.requestBody?.contentType ?? 'application/json');
+    sim.emit('network', netSummary(call));
+    setTimeout(respond, duration);
+  });
+}
+
+// --------------------------------------------------------------- endpoints --
+
+// As if shipped from the app repo's killcam-endpoints.json.
+const REPO_ENDPOINTS = [
+  { key: '/v1/home', name: 'Home page', method: 'GET', group: 'page' },
+  { key: '/v1/offers', name: 'Offers', method: 'GET', group: 'page' },
+  { key: '/v1/upi/pay', name: 'UPI pay', method: 'POST', group: 'action', description: 'Submits a UPI payment' },
+  { key: '/v1/upi/validate-vpa', name: 'Validate VPA', method: 'POST', group: 'action' },
+  { key: '/v1/transactions/', name: 'Transaction detail', method: 'GET', group: 'data' },
+];
+const CODE_ENDPOINTS = [{ key: '/v1/contacts', name: 'Contacts sync', method: 'GET', group: 'data' }];
+
+const topLevel = (key) => key.split(/[/.?]/).find(Boolean) ?? key;
+function normalizeEndpoint(e) {
+  const key = String(e.key ?? '').trim();
+  const pattern = e.urlPattern?.trim();
+  const group = e.group?.trim();
+  return {
+    key,
+    name: e.name?.trim() || null,
+    method: e.method?.trim().toUpperCase() || null,
+    urlPattern: pattern && pattern !== key ? pattern : null,
+    matchType: e.matchType ?? 'contains',
+    group: group && group !== topLevel(key) ? group : null,
+    description: e.description?.trim() || null,
+  };
+}
+const sameEndpoint = (a, b) => !!a && !!b && JSON.stringify(normalizeEndpoint(a)) === JSON.stringify(normalizeEndpoint(b));
+
+function listEndpoints() {
+  const repo = new Map(REPO_ENDPOINTS.map((e) => [e.key, normalizeEndpoint(e)]));
+  const code = new Map(CODE_ENDPOINTS.map((e) => [e.key, normalizeEndpoint(e)]));
+  const keys = new Set([...repo.keys(), ...code.keys(), ...state.dashEndpoints.keys()]);
+  return [...keys]
+    .map((key) => {
+      const r = repo.get(key);
+      const d = state.dashEndpoints.get(key);
+      const [e, source] = d && !sameEndpoint(d, r) ? [d, 'dashboard'] : code.has(key) && !d ? [code.get(key), 'code'] : [r ?? d, 'repo'];
+      return {
+        key,
+        name: e.name,
+        method: e.method,
+        urlPattern: e.urlPattern ?? key,
+        matchType: e.matchType,
+        group: e.group ?? topLevel(key),
+        description: e.description,
+        source,
+        unexported: !sameEndpoint(e, r),
+      };
+    })
+    .sort((a, b) => a.group.localeCompare(b.group) || a.key.localeCompare(b.key));
+}
+function exportEndpoints() {
+  const endpoints = listEndpoints().map((e) => {
+    const out = { key: e.key };
+    if (e.name) out.name = e.name;
+    if (e.method) out.method = e.method;
+    if (e.urlPattern !== e.key) out.urlPattern = e.urlPattern;
+    if (e.matchType !== 'contains') out.matchType = e.matchType;
+    if (e.group !== topLevel(e.key)) out.group = e.group;
+    if (e.description) out.description = e.description;
+    return out;
+  });
+  return JSON.stringify({ version: 1, endpoints }, null, 2) + '\n';
+}
+
+function failureError(kind, host) {
+  return {
+    timeout: 'SocketTimeoutException: timeout',
+    no_network: `UnknownHostException: Unable to resolve host "${host}": No address associated with hostname`,
+    dns_failure: `UnknownHostException: Unable to resolve host "${host}": No address associated with hostname`,
+    connection_reset: 'SocketException: Connection reset',
+    connection_refused: `ConnectException: Failed to connect to ${host}/443`,
+    connect_timeout: `SocketTimeoutException: failed to connect to ${host}/443 after 10000ms`,
+    ssl_handshake: 'SSLHandshakeException: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.',
+    unexpected_eof: `IOException: unexpected end of stream on https://${host}/...`,
+  }[kind];
 }
 
 function httpReason(s) {
@@ -767,6 +952,9 @@ const state = {
   wifiEnabled: false,
   down: false,
   mocks: [],
+  paused: [],
+  dashEndpoints: new Map(),
+  conditions: { profile: 'off', latencyMs: 0, jitterMs: 0, downloadKbps: 0, uploadKbps: 0, lossPercent: 0, offline: false },
   flags: [],
   prefs: new Map(),
   files: null,
@@ -778,10 +966,12 @@ const state = {
 function initialMocks() {
   const now = Date.now();
   return [
-    { id: 'mock_offers_empty', name: 'Offers: empty list', enabled: false, method: 'GET', urlPattern: '/v1/offers', matchType: 'contains', action: 'respond', status: 200, headers: [{ name: 'content-type', value: 'application/json' }], body: JSON.stringify({ offers: [], nextCursor: null }, null, 2), delayMs: 0, failure: 'timeout', hits: 3, createdMs: now - 86_400_000 },
-    { id: 'mock_pay_u30', name: 'Pay: insufficient funds (U30)', enabled: false, method: 'POST', urlPattern: 'https://api.swag.gg/v1/upi/pay', matchType: 'exact', action: 'respond', status: 402, headers: [{ name: 'content-type', value: 'application/json' }], body: JSON.stringify({ status: 'FAILED', error: { code: 'U30', message: 'Debit has failed', reason: 'INSUFFICIENT_FUNDS', retryable: false } }, null, 2), delayMs: 0, failure: 'timeout', hits: 0, createdMs: now - 7_200_000 },
-    { id: 'mock_slow_home', name: 'Slow home (3s)', enabled: false, method: 'GET', urlPattern: 'https://api.swag.gg/v1/home*', matchType: 'glob', action: 'delay', status: 200, headers: [], body: '', delayMs: 3000, failure: 'timeout', hits: 0, createdMs: now - 3_600_000 },
-    { id: 'mock_contacts_offline', name: 'Contacts offline', enabled: false, method: null, urlPattern: '/v1/contacts\\?page=\\d+', matchType: 'regex', action: 'fail', status: 200, headers: [], body: '', delayMs: 800, failure: 'no_network', hits: 0, createdMs: now - 1_800_000 },
+    { id: 'mock_offers_empty', name: 'Offers: empty list', enabled: false, method: 'GET', urlPattern: '/v1/offers', matchType: 'contains', action: 'respond', status: 200, headers: [{ name: 'content-type', value: 'application/json' }], body: JSON.stringify({ offers: [], nextCursor: null }, null, 2), delayMs: 0, failure: 'timeout', hits: 3, createdMs: now - 86_400_000, dropAfterBytes: 0, times: 0, probability: 100, endpoint: null, breakOn: 'request' },
+    { id: 'mock_pay_u30', name: 'Pay: insufficient funds (U30)', enabled: false, method: 'POST', urlPattern: 'https://api.swag.gg/v1/upi/pay', matchType: 'exact', action: 'respond', status: 402, headers: [{ name: 'content-type', value: 'application/json' }], body: JSON.stringify({ status: 'FAILED', error: { code: 'U30', message: 'Debit has failed', reason: 'INSUFFICIENT_FUNDS', retryable: false } }, null, 2), delayMs: 0, failure: 'timeout', hits: 0, createdMs: now - 7_200_000, dropAfterBytes: 0, times: 1, probability: 100, endpoint: null, breakOn: 'request' },
+    { id: 'mock_slow_home', name: 'Slow home (3s)', enabled: false, method: 'GET', urlPattern: 'https://api.swag.gg/v1/home*', matchType: 'glob', action: 'delay', status: 200, headers: [], body: '', delayMs: 3000, failure: 'timeout', hits: 0, createdMs: now - 3_600_000, dropAfterBytes: 0, times: 0, probability: 100, endpoint: null, breakOn: 'request' },
+    { id: 'mock_contacts_offline', name: 'Contacts offline', enabled: false, method: null, urlPattern: '/v1/contacts\\?page=\\d+', matchType: 'regex', action: 'fail', status: 200, headers: [], body: '', delayMs: 800, failure: 'dns_failure', hits: 0, createdMs: now - 1_800_000, dropAfterBytes: 0, times: 0, probability: 100, endpoint: null, breakOn: 'request' },
+    { id: 'mock_txn_switch', name: 'Transactions: network switch mid-download', enabled: false, method: 'GET', urlPattern: '/v1/transactions', matchType: 'contains', action: 'fail', status: 200, headers: [], body: '', delayMs: 0, failure: 'network_switch', hits: 0, createdMs: now - 900_000, dropAfterBytes: 512, times: 0, probability: 100, endpoint: null, breakOn: 'request' },
+    { id: 'mock_home_flaky', name: 'Home: flaky 503 (30%)', enabled: false, method: 'GET', urlPattern: '/v1/home', matchType: 'contains', action: 'respond', status: 503, headers: [{ name: 'content-type', value: 'application/json' }, { name: 'Retry-After', value: '30' }], body: JSON.stringify({ error: { code: 'SERVICE_UNAVAILABLE', message: 'Try again later' } }, null, 2), delayMs: 0, failure: 'timeout', hits: 0, createdMs: now - 600_000, dropAfterBytes: 0, times: 0, probability: 30, endpoint: null, breakOn: 'request' },
   ];
 }
 
@@ -1412,8 +1602,57 @@ function urlMatches(rule, url) {
   }
   return false;
 }
+const FAILURE_KINDS = ['timeout', 'no_network', 'connection_reset', 'dns_failure', 'connection_refused', 'connect_timeout', 'ssl_handshake', 'network_switch', 'unexpected_eof'];
+
 function matchMock(method, url) {
-  return state.mocks.find((r) => r.enabled && (r.method == null || r.method === method) && urlMatches(r, url)) ?? null;
+  return (
+    state.mocks.find(
+      (r) =>
+        r.enabled &&
+        !(r.times > 0 && r.hits >= r.times) &&
+        (r.method == null || r.method === method) &&
+        urlMatches(r, url) &&
+        (r.probability >= 100 || Math.random() * 100 < r.probability),
+    ) ?? null
+  );
+}
+
+// ----------------------------------------------------- network conditions --
+
+const PRESETS = [
+  ['gprs', 'GPRS', '500 ms, 50/20 kbps, 2% loss', 500, 200, 50, 20, 2],
+  ['2g', '2G (EDGE)', '300 ms, 250/50 kbps, 1% loss', 300, 100, 250, 50, 1],
+  ['slow_3g', 'Slow 3G', '400 ms, 400/400 kbps', 400, 100, 400, 400, 0],
+  ['fast_3g', 'Fast 3G', '150 ms, 1.6 Mbps/750 kbps', 150, 50, 1600, 750, 0],
+  ['4g', '4G', '50 ms, 12/6 Mbps', 50, 20, 12000, 6000, 0],
+  ['flaky_wifi', 'Flaky Wi-Fi', '80 ms ± 600 ms, 2/1 Mbps, 10% loss', 80, 600, 2000, 1000, 10],
+  ['offline', 'Offline', 'Every call fails DNS resolution', 0, 0, 0, 0, 0],
+].map(([profile, label, description, latencyMs, jitterMs, downloadKbps, uploadKbps, lossPercent]) => ({
+  profile,
+  label,
+  description,
+  conditions: { profile, latencyMs, jitterMs, downloadKbps, uploadKbps, lossPercent, offline: profile === 'offline' },
+}));
+const OFF = { profile: 'off', latencyMs: 0, jitterMs: 0, downloadKbps: 0, uploadKbps: 0, lossPercent: 0, offline: false };
+const conditionsActive = (c) => c.offline || c.latencyMs > 0 || c.jitterMs > 0 || c.downloadKbps > 0 || c.uploadKbps > 0 || c.lossPercent > 0;
+
+function planConditions() {
+  const c = state.conditions;
+  if (!conditionsActive(c)) return null;
+  let failure = null;
+  if (c.offline) failure = 'dns_failure';
+  else if (c.lossPercent > 0 && Math.random() * 100 < c.lossPercent) failure = Math.random() < 0.5 ? 'timeout' : 'connection_reset';
+  return { failure, delayMs: c.offline ? 0 : c.latencyMs + Math.floor(Math.random() * (c.jitterMs + 1)) };
+}
+
+function setConditions(next) {
+  const same = JSON.stringify(next) === JSON.stringify(state.conditions);
+  state.conditions = next;
+  if (same) return next;
+  broadcast('conditions', next);
+  const label = next.profile === 'off' ? 'Off' : PRESETS.find((p) => p.profile === next.profile)?.label ?? 'Custom';
+  (liveSim ?? new Sim(state.live, { live: true })).pushTimeline('custom', `Network: ${label}`, { data: next });
+  return next;
 }
 function scheduleMocksBroadcast() {
   clearTimeout(state.mocksTimer);
@@ -1421,9 +1660,16 @@ function scheduleMocksBroadcast() {
 }
 function validateMockInput(b) {
   if (!b || typeof b !== 'object') return 'body must be a MockRuleInput';
+  if (b.endpoint) {
+    if (!listEndpoints().some((e) => e.key === b.endpoint)) return `No endpoint '${b.endpoint}' in the catalog`;
+    if (!['respond', 'delay', 'fail', 'breakpoint'].includes(b.action)) return 'bad action';
+    return null;
+  }
   if (typeof b.urlPattern !== 'string' || !b.urlPattern.trim()) return 'urlPattern is required';
   if (!['contains', 'exact', 'glob', 'regex'].includes(b.matchType)) return 'bad matchType';
-  if (!['respond', 'delay', 'fail'].includes(b.action)) return 'bad action';
+  if (!['respond', 'delay', 'fail', 'breakpoint'].includes(b.action)) return 'bad action';
+  if (b.probability != null && !(b.probability >= 1 && b.probability <= 100)) return 'probability must be 1..100';
+  if (b.times != null && !(b.times >= 0)) return 'times must be 0 (always) or more';
   if (b.matchType === 'regex') {
     try {
       new RegExp(b.urlPattern);
@@ -1434,6 +1680,8 @@ function validateMockInput(b) {
   return null;
 }
 function mockFromInput(b, base) {
+  const ep = b.endpoint ? listEndpoints().find((e) => e.key === b.endpoint) : null;
+  if (ep) b = { ...b, method: b.method || ep.method, urlPattern: ep.urlPattern, matchType: ep.matchType, name: b.name || ep.name || ep.key };
   return {
     id: base?.id ?? uid('mock'),
     name: String(b.name ?? '').trim() || `${b.method ?? 'ANY'} ${b.urlPattern}`,
@@ -1446,9 +1694,14 @@ function mockFromInput(b, base) {
     headers: Array.isArray(b.headers) ? b.headers.filter((h) => h && h.name).map((h) => ({ name: String(h.name), value: String(h.value ?? '') })) : [],
     body: String(b.body ?? ''),
     delayMs: Number(b.delayMs) || 0,
-    failure: ['timeout', 'no_network', 'connection_reset'].includes(b.failure) ? b.failure : 'timeout',
-    hits: base?.hits ?? 0,
+    failure: FAILURE_KINDS.includes(b.failure) ? b.failure : 'timeout',
+    hits: base && base.times === (Number(b.times) || 0) ? base.hits : 0,
     createdMs: base?.createdMs ?? Date.now(),
+    dropAfterBytes: Math.max(0, Number(b.dropAfterBytes) || 0),
+    times: Math.max(0, Number(b.times) || 0),
+    probability: b.probability == null ? 100 : Number(b.probability),
+    endpoint: ep ? ep.key : null,
+    breakOn: ['request', 'response', 'both'].includes(b.breakOn) ? b.breakOn : 'request',
   };
 }
 
@@ -1839,6 +2092,26 @@ route('GET', '/api/network/:id', (req, res, { id }) => {
   const c = state.live.network.find((x) => x.id === id);
   return c ? json(res, 200, c) : fail(res, 404, 'not_found');
 });
+route('POST', '/api/network/:id/repeat', async (req, res, { id }) => {
+  const call = state.live.network.find((x) => x.id === id);
+  if (!call) return fail(res, 404, 'not_found');
+  const b = (await readJson(req)) ?? {};
+  const count = Number(b.count ?? 1);
+  if (!(count >= 1 && count <= 50)) return fail(res, 400, 'count must be 1..50');
+  const spec = callSpecs.get(call) ?? { method: call.method, url: call.url, status: call.status ?? 200, resBody: call.responseBody?.text ?? '{}' };
+  const edit = b.edit ?? {};
+  if (edit.url) {
+    try {
+      new URL(edit.url);
+    } catch {
+      return fail(res, 400, `Not an http(s) URL: ${edit.url}`);
+    }
+  }
+  const next = { ...spec, method: edit.method ?? spec.method, url: edit.url ?? spec.url, reqBody: edit.body ?? spec.reqBody, source: 'repeat', mockRuleId: undefined };
+  const sim = liveSim ?? new Sim(state.live, { live: true });
+  for (let i = 0; i < count; i++) setTimeout(() => sim.call(next), b.concurrent ? 0 : i * 700);
+  json(res, 200, { started: count });
+});
 route('GET', '/api/network/:id/curl', (req, res, { id }) => {
   const c = state.live.network.find((x) => x.id === id);
   if (!c) return fail(res, 404, 'not_found');
@@ -1954,6 +2227,71 @@ route('PUT', '/api/mocks', async (req, res) => {
   broadcast('mocks', state.mocks);
   json(res, 200, state.mocks);
 });
+route('POST', '/api/mocks/:id/reset', (req, res, { id }) => {
+  const rule = state.mocks.find((m) => m.id === id);
+  if (!rule) return fail(res, 404, 'not_found');
+  rule.hits = 0;
+  broadcast('mocks', state.mocks);
+  json(res, 200, rule);
+});
+
+// Network conditions
+route('GET', '/api/network-conditions', (req, res) => json(res, 200, state.conditions));
+route('GET', '/api/network-conditions/presets', (req, res) => json(res, 200, PRESETS));
+route('PUT', '/api/network-conditions', async (req, res) => {
+  const b = (await readJson(req)) ?? {};
+  if (b.profile && b.profile !== 'custom') {
+    if (b.profile === 'off') return json(res, 200, setConditions(OFF));
+    const preset = PRESETS.find((p) => p.profile === b.profile);
+    if (!preset) return fail(res, 400, `No preset '${b.profile}'`);
+    return json(res, 200, setConditions(preset.conditions));
+  }
+  const n = (k) => Math.max(0, Number(b[k]) || 0);
+  if (n('lossPercent') > 100) return fail(res, 400, 'lossPercent must be 0..100');
+  const next = { profile: 'custom', latencyMs: n('latencyMs'), jitterMs: n('jitterMs'), downloadKbps: n('downloadKbps'), uploadKbps: n('uploadKbps'), lossPercent: n('lossPercent'), offline: !!b.offline };
+  json(res, 200, setConditions(conditionsActive(next) ? next : OFF));
+});
+route('DELETE', '/api/network-conditions', (req, res) => json(res, 200, setConditions(OFF)));
+
+// Endpoint catalog
+route('GET', '/api/endpoints', (req, res) => json(res, 200, listEndpoints()));
+const putEndpoint = async (req, res) => {
+  const b = await readJson(req);
+  const e = normalizeEndpoint(b ?? {});
+  if (!e.key) return fail(res, 400, 'key is required');
+  state.dashEndpoints.set(e.key, e);
+  broadcast('endpoints', listEndpoints());
+  json(res, 200, listEndpoints().find((x) => x.key === e.key));
+};
+route('POST', '/api/endpoints', putEndpoint);
+route('PUT', '/api/endpoints', putEndpoint);
+route('DELETE', '/api/endpoints', (req, res, { query }) => {
+  const key = query.get('key');
+  if (!key) return fail(res, 400, 'key is required');
+  if (!state.dashEndpoints.delete(key)) return fail(res, 404, 'No such dashboard endpoint');
+  broadcast('endpoints', listEndpoints());
+  noContent(res);
+});
+route('GET', '/api/endpoints/export', (req, res, { query }) => {
+  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
+  if (query.get('download') === '1') headers['Content-Disposition'] = 'attachment; filename="killcam-endpoints.json"';
+  res.writeHead(200, headers);
+  res.end(exportEndpoints());
+});
+
+// Breakpoints
+route('GET', '/api/breakpoints', (req, res) => json(res, 200, state.paused));
+route('POST', '/api/breakpoints/resume-all', (req, res) => {
+  [...held.values()].forEach((done) => done({ action: 'continue' }));
+  noContent(res);
+});
+route('POST', '/api/breakpoints/:id', async (req, res, { id }) => {
+  const done = held.get(id);
+  if (!done) return fail(res, 404, `No paused call '${id}' (already resumed or timed out)`);
+  done((await readJson(req)) ?? { action: 'continue' });
+  noContent(res);
+});
+
 route('DELETE', '/api/mocks/:id', (req, res, { id }) => {
   const i = state.mocks.findIndex((m) => m.id === id);
   if (i < 0) return fail(res, 404, 'not_found');

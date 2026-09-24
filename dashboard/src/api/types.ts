@@ -196,8 +196,18 @@ export interface SessionBundle {
 // --------------------------------------------------------------- mocks -----
 
 export type MatchType = 'contains' | 'exact' | 'glob' | 'regex';
-export type MockAction = 'respond' | 'delay' | 'fail';
-export type MockFailure = 'timeout' | 'no_network' | 'connection_reset';
+export type MockAction = 'respond' | 'delay' | 'fail' | 'breakpoint';
+export type BreakOn = 'request' | 'response' | 'both';
+export type MockFailure =
+  | 'timeout'
+  | 'no_network'
+  | 'connection_reset'
+  | 'dns_failure'
+  | 'connection_refused'
+  | 'connect_timeout'
+  | 'ssl_handshake'
+  | 'network_switch'
+  | 'unexpected_eof';
 
 export interface MockRule {
   id: string;
@@ -216,10 +226,133 @@ export interface MockRule {
   failure: MockFailure;
   hits: number;
   createdMs: Millis;
+  /** network_switch: body bytes delivered before the connection drops. */
+  dropAfterBytes: number;
+  /** Applies to the first `times` matches only (0 = always); used-up rules let calls through. */
+  times: number;
+  /** Percent (1..100) of matching calls the rule applies to; the rest fall through. */
+  probability: number;
+  /** Catalog endpoint key the rule targets (its match was copied from it). */
+  endpoint: string | null;
+  /** breakpoint: where matching calls pause. */
+  breakOn: BreakOn;
 }
 
-/** What POST /api/mocks and PUT /api/mocks/{id} accept. */
+/**
+ * What POST /api/mocks and PUT /api/mocks/{id} accept. With `endpoint` set, the
+ * device fills method (unless given), urlPattern and matchType from the catalog.
+ */
 export type MockRuleInput = Omit<MockRule, 'id' | 'hits' | 'createdMs'>;
+
+// -------------------------------------------------- network conditions -----
+
+export type NetworkProfile = 'off' | 'gprs' | '2g' | 'slow_3g' | 'fast_3g' | '4g' | 'flaky_wifi' | 'offline' | 'custom';
+
+/** Applied to every intercepted call, mocked or not. Rates in kbps; 0 = unlimited. */
+export interface NetworkConditions {
+  profile: NetworkProfile;
+  latencyMs: number;
+  jitterMs: number;
+  downloadKbps: number;
+  uploadKbps: number;
+  /** Percent of calls that fail as a lost connection. */
+  lossPercent: number;
+  /** Every call fails DNS resolution. */
+  offline: boolean;
+}
+
+/**
+ * PUT /api/network-conditions. A preset `profile` (not custom) ignores the other
+ * fields; otherwise they describe custom conditions and missing ones are 0.
+ */
+export type NetworkConditionsInput = Partial<NetworkConditions>;
+
+/** GET /api/network-conditions/presets */
+export interface NetworkPreset {
+  profile: NetworkProfile;
+  label: string;
+  description: string;
+  conditions: NetworkConditions;
+}
+
+// ------------------------------------------------------------ endpoints -----
+
+export type EndpointSource = 'repo' | 'code' | 'dashboard';
+
+/** GET /api/endpoints: the app's named APIs, merged from the repo file, code and the dashboard. */
+export interface Endpoint {
+  key: string;
+  name: string | null;
+  method: string | null;
+  urlPattern: string;
+  matchType: MatchType;
+  /** Top-level group: given, or the key's first path segment. */
+  group: string;
+  description: string | null;
+  source: EndpointSource;
+  /** Not in the repo catalog yet: goes out with the next export. */
+  unexported: boolean;
+}
+
+/** PUT /api/endpoints, and one entry of killcam-endpoints.json. */
+export interface EndpointInput {
+  key: string;
+  name?: string | null;
+  method?: string | null;
+  urlPattern?: string | null;
+  matchType?: MatchType;
+  group?: string | null;
+  description?: string | null;
+}
+
+// --------------------------------------------------------------- repeat -----
+
+export interface RequestEdit {
+  method?: string | null;
+  url?: string | null;
+  headers?: Header[] | null;
+  body?: string | null;
+}
+
+/** POST /api/network/{id}/repeat */
+export interface RepeatRequest {
+  count: number;
+  concurrent: boolean;
+  edit?: RequestEdit | null;
+}
+
+// ---------------------------------------------------------- breakpoints -----
+
+export interface PausedCall {
+  id: string;
+  callId: string | null;
+  ruleId: string;
+  ruleName: string;
+  stage: 'request' | 'response';
+  pausedMs: Millis;
+  /** Continues unchanged by itself at this time. */
+  deadlineMs: Millis;
+  method: string;
+  url: string;
+  requestHeaders: Header[];
+  requestBody: string | null;
+  requestBodyEditable: boolean;
+  status: number | null;
+  responseHeaders: Header[];
+  responseBody: string | null;
+  responseBodyEditable: boolean;
+}
+
+/** POST /api/breakpoints/{id}. Null/absent fields keep the original. */
+export interface ResumeRequest {
+  action: 'continue' | 'fail';
+  failure?: MockFailure;
+  method?: string;
+  url?: string;
+  status?: number;
+  headers?: Header[];
+  body?: string;
+}
 
 // --------------------------------------------------------------- flags -----
 
@@ -378,6 +511,9 @@ export interface LiveEvents {
   crash: CrashSummary;
   timeline: TimelineEvent;
   mocks: MockRule[]; // full list after any change
+  conditions: NetworkConditions;
+  endpoints: Endpoint[]; // full list after any change
+  breakpoints: PausedCall[]; // calls held right now
   flags: Flag[]; // full list after any change
   status: KillcamStatus;
   cleared: { stream: 'network' | 'logs' | 'crashes' | 'timeline' | 'all' };

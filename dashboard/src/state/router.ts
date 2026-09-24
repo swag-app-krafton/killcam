@@ -7,6 +7,7 @@ export const PANELS = [
   'logs',
   'crashes',
   'mocks',
+  'endpoints',
   'flags',
   'remote-config',
   'actions',
