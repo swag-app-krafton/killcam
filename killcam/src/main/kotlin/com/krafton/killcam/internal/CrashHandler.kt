@@ -22,6 +22,8 @@ internal object CrashHandler {
             } catch (_: Throwable) {
                 // Never let recording a crash replace the original crash.
             }
+            // The process is about to end: nothing records any more (B-021).
+            runCatching { rt.notifier.cancel() }
             if (previous != null) {
                 previous.uncaughtException(thread, throwable)
             } else {

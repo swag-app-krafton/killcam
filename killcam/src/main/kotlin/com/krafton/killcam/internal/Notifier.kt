@@ -8,10 +8,28 @@ import android.content.Context
 import android.content.Intent
 import com.krafton.killcam.R
 import com.krafton.killcam.internal.ui.KillcamActivity
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
+
+/**
+ * A plain notification outlives its process: after a crash, a native signal or
+ * a kill from the system or from recents it stayed, still saying "recording"
+ * (B-021). So it's re-posted every [REFRESH_MS] while the app lives, and each
+ * post expires [TIMEOUT_MS] later: once the process is gone, so is the
+ * notification. The timeout covers two missed refreshes.
+ */
+internal object NotificationLease {
+    const val REFRESH_MS = 5_000L
+    const val TIMEOUT_MS = 12_000L
+}
 
 /** The ongoing "Killcam is recording" notification, carrying the dashboard address. */
 internal class Notifier(private val rt: KillcamRuntime) {
     private val manager = rt.app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    /** Re-posts the notification off the main thread, so the app being measured never pays for it. */
+    @Volatile private var refresher: ScheduledExecutorService? = null
 
     fun show() {
         if (!rt.config.showNotification || !manager.areNotificationsEnabled()) return
@@ -21,6 +39,29 @@ internal class Notifier(private val rt: KillcamRuntime) {
                 setShowBadge(false)
             },
         )
+        post()
+        synchronized(this) {
+            if (refresher == null) {
+                refresher = Executors.newSingleThreadScheduledExecutor { r ->
+                    Thread(r, "killcam-notification").apply { isDaemon = true }
+                }.also {
+                    it.scheduleWithFixedDelay({ runCatching { post() } },
+                        NotificationLease.REFRESH_MS, NotificationLease.REFRESH_MS, TimeUnit.MILLISECONDS)
+                }
+            }
+        }
+    }
+
+    /** Takes the notification down now: an uncaught crash is about to end the process. */
+    fun cancel() {
+        synchronized(this) {
+            refresher?.shutdownNow()
+            refresher = null
+        }
+        runCatching { manager.cancel(NOTIFICATION_ID) }
+    }
+
+    private fun post() {
         val app = rt.app
         val open = PendingIntent.getActivity(
             app, 0,
@@ -47,6 +88,7 @@ internal class Notifier(private val rt: KillcamRuntime) {
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setTimeoutAfter(NotificationLease.TIMEOUT_MS)
             .setColor(0xFFF2A900.toInt())
             .addAction(Notification.Action.Builder(null, "Mark moment", mark).build())
             .build()
