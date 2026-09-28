@@ -112,6 +112,7 @@ Only the user answers these. When one is answered, record the answer, with its d
 
 | ID | Title | Commit | Date |
 |---|---|---|---|
+| B-021 | "Killcam · recording" stayed after the app died (a crash, a native signal, a kill from the system or from recents), still saying recording, and couldn't be swiped away; only a force-stop cleared it. Found on the V2514 with Swag Pay's debug build. It's now re-posted every 5 s off the main thread and expires 12 s after each post, and the crash handler takes it down at once. Checked on the V2514 with the sample app: it goes within 1 s of a crash and about 10 s after a hard kill, and stays while the app runs | 050ca5d | 2026-09-28 |
 | F-002 | Network conditions, more failure types, intermittent rules, endpoint catalogue, repeat and breakpoints. The run on a phone is part of T-003. | `d2448a5`, `1b6d521`, `190c042`, `ac1b09f` | 2026-09-24 |
 | — | Killcam v1: the library, the on-device server, the dashboard, the no-op artifact, the sample app, the Rozenite plugin and the desktop demo. Includes the fixes found on the vivo: logcat polling for Android 16, a full-screen in-app window with a native bridge, screenshots stamped at capture time, and JS errors that keep their fatal flag. | b474131 | 2026-09-24 |
 

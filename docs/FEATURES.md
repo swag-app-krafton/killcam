@@ -960,7 +960,7 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
 - **What it gives you:**
   - **The bubble:** a draggable 44 dp button over the app. Tap it to open the in-app window. Long-press it to mark a moment, which gives a haptic and the toast "Killcam: moment marked". Drag it and it snaps to the nearer edge.
   - **Shake:** two firm shakes open the in-app window.
-  - **The notification:** an ongoing, low-importance notification, "Killcam · recording". It shows the `adb` command, or the Wi-Fi URL and PIN. Tapping it opens the window, and it has a **Mark moment** action.
+  - **The notification:** an ongoing, low-importance notification, "Killcam · recording". It shows the `adb` command, or the Wi-Fi URL and PIN. Tapping it opens the window, and it has a **Mark moment** action. It goes when the app dies: the crash handler takes it down at once, and because it's re-posted every 5 s and each post expires 12 s later, it also goes after a native crash or a kill (B-021).
 - **How it works:**
   - **The bubble** is a `PopupWindow`, a window of its own. So it needs no overlay permission and never appears in screenshots. It is attached on every activity resume except the in-app window's. Its dot pulses every 600 ms while recording.
   - **Shake** uses the accelerometer, only in the foreground. A shake is at least 2.7 g, the second must come 200–1,000 ms after the first, and there is a 2,000 ms cooldown.
