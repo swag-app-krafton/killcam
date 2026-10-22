@@ -266,6 +266,18 @@ public object Killcam {
         mmkvRegistry[id] = MmkvRegistration(cryptKey, multiProcess)
     }
 
+    /**
+     * SQLite files outside the app's `databases/` folder: every `*.db` under [directory], at any depth, appears in the
+     * Databases panel as `<directory name>:<path with ':' for '/'>` (a name travels in a URL path, where '/' cannot).
+     * They follow [KillcamConfig.readOnlyDatabases] like any other database.
+     */
+    @JvmStatic
+    public fun registerDatabaseDirectory(directory: java.io.File) {
+        databaseDirectories.add(directory)
+    }
+
+    internal val databaseDirectories = java.util.concurrent.CopyOnWriteArraySet<java.io.File>()
+
     // --------------------------------------------------------------- actions --
 
     /**

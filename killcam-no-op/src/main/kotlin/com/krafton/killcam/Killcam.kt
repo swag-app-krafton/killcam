@@ -118,6 +118,9 @@ public object Killcam {
     @JvmStatic @JvmOverloads @Suppress("UNUSED_PARAMETER")
     public fun registerMmkv(id: String, cryptKey: String? = null, multiProcess: Boolean = false): Unit = Unit
 
+    @JvmStatic @Suppress("UNUSED_PARAMETER")
+    public fun registerDatabaseDirectory(directory: java.io.File): Unit = Unit
+
     @JvmStatic @JvmOverloads @Suppress("UNUSED_PARAMETER")
     public fun registerAction(label: String, description: String? = null, group: String? = null, action: () -> String?): Unit = Unit
 

@@ -4,6 +4,7 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.os.SystemClock
+import com.krafton.killcam.Killcam
 import com.krafton.killcam.core.ApiException
 import com.krafton.killcam.core.KillcamJson
 import com.krafton.killcam.core.model.DbInfo
@@ -97,11 +98,9 @@ internal class AndroidDatabaseProvider(
 ) : DatabaseProvider {
 
     override fun databases(): List<DbInfo> =
-        context.databaseList()
-            .filterNot { name -> SIDE_FILES.any { name.endsWith(it) } }
-            .sorted()
+        (context.databaseList().filterNot { name -> SIDE_FILES.any { name.endsWith(it) } }.sorted() + registeredNames())
             .mapNotNull { name ->
-                val file = context.getDatabasePath(name)
+                val file = fileOf(name) ?: return@mapNotNull null
                 if (!file.isFile) return@mapNotNull null
                 runCatching {
                     open(name).use { db ->
@@ -109,6 +108,26 @@ internal class AndroidDatabaseProvider(
                     }
                 }.getOrElse { DbInfo(name, file.absolutePath, file.length(), emptyList()) }
             }
+
+    /** Every `*.db` under the directories the app registered, named `<directory name>:<relative path, ':' for '/'>`. */
+    private fun registeredNames(): List<String> =
+        Killcam.databaseDirectories.flatMap { dir ->
+            dir.walkTopDown()
+                .filter { it.isFile && it.name.endsWith(".db") }
+                .map { dir.name + ":" + it.relativeTo(dir).path.replace(File.separatorChar, ':') }
+                .sorted()
+                .toList()
+        }
+
+    /** The file [name] stands for: a registered directory's file, or one in `databases/`; null if it would escape. */
+    private fun fileOf(name: String): File? {
+        if (name.contains('/') || name.contains("..")) return null
+        if (!name.contains(':')) return context.getDatabasePath(name)
+        val dirName = name.substringBefore(':')
+        val dir = Killcam.databaseDirectories.firstOrNull { it.name == dirName } ?: return null
+        val file = File(dir, name.substringAfter(':').replace(':', File.separatorChar)).canonicalFile
+        return file.takeIf { it.path.startsWith(dir.canonicalPath + File.separator) }
+    }
 
     override fun browse(database: String, table: String, offset: Int, limit: Int, orderBy: String?, descending: Boolean): QueryResult {
         val started = SystemClock.elapsedRealtime()
@@ -151,8 +170,7 @@ internal class AndroidDatabaseProvider(
     }
 
     private fun open(name: String): SQLiteDatabase {
-        if (name.contains('/')) throw ApiException(400, "Bad database name")
-        val file = context.getDatabasePath(name)
+        val file = fileOf(name) ?: throw ApiException(400, "Bad database name")
         if (!file.isFile) throw ApiException(404, "No database '$name'")
         val flags = if (readOnly) SQLiteDatabase.OPEN_READONLY else SQLiteDatabase.OPEN_READWRITE
         return SQLiteDatabase.openDatabase(file.path, null, flags)
