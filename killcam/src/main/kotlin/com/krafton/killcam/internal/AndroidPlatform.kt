@@ -55,7 +55,7 @@ internal class AndroidPlatform(private val app: Application, private val rt: Kil
         "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}"
 
     override val prefs: PrefsProvider = AndroidPrefsProvider(app)
-    override val databases: DatabaseProvider = AndroidDatabaseProvider(app)
+    override val databases: DatabaseProvider = AndroidDatabaseProvider(app, rt.config.readOnlyDatabases)
     override val files: FilesProvider = DirectoryFilesProvider(
         buildList {
             fun root(id: String, label: String, dir: File?) {

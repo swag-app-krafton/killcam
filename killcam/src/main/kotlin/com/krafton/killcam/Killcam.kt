@@ -73,12 +73,27 @@ public object Killcam {
             created.core.extras.putAll(pendingInfo)
             runtime = created
             created.start()
+            markInstalled()
             return true
         }
     }
 
     @JvmStatic
     public val isInstalled: Boolean get() = runtime != null
+
+    /**
+     * A `meta:killcam` instant in any system trace recorded while Killcam runs, so a profiler (swagperf) can tell a
+     * build carrying Killcam from a clean one even when both share a package and neither is debuggable.
+     */
+    private fun markInstalled() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            android.os.Trace.beginAsyncSection(TRACE_MARKER, 0)
+            android.os.Trace.endAsyncSection(TRACE_MARKER, 0)
+        }
+    }
+
+    /** The trace instant [install] writes; swagperf rejects a capture containing it. */
+    public const val TRACE_MARKER: String = "meta:killcam"
 
     /** Opens the in-app inspector. */
     @JvmStatic

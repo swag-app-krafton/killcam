@@ -1,0 +1,7 @@
+# JitPack (https://jitpack.io) builds a tag of this repo for apps that consume Killcam without a registry token:
+# com.github.swag-app-krafton.killcam:killcam:<tag> and :killcam-no-op:<tag> (killcam-core comes with killcam).
+# JDK 17 as the build requires; only the three published modules, not the sample app or the dashboard.
+jdk:
+  - openjdk17
+install:
+  - ./gradlew :killcam-core:publishToMavenLocal :killcam:publishToMavenLocal :killcam-no-op:publishToMavenLocal -x test

@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    `maven-publish`
 }
 
 // Release builds depend on this instead of :killcam. Same public API, no
@@ -12,6 +13,10 @@ android {
 
     defaultConfig {
         minSdk = 26
+    }
+
+    publishing {
+        singleVariant("release") { withSourcesJar() }
     }
 
     compileOptions {
@@ -29,4 +34,12 @@ kotlin {
 
 dependencies {
     compileOnly(libs.okhttp)
+}
+
+publishing {
+    publications {
+        register<MavenPublication>("release") {
+            afterEvaluate { from(components["release"]) }
+        }
+    }
 }

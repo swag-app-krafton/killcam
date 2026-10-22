@@ -22,6 +22,9 @@ public object Killcam {
     @JvmStatic
     public val isInstalled: Boolean get() = false
 
+    /** The trace instant the real Killcam writes at install; the no-op never writes it. */
+    public const val TRACE_MARKER: String = "meta:killcam"
+
     @JvmStatic
     @Suppress("UNUSED_PARAMETER")
     public fun open(context: Context): Unit = Unit

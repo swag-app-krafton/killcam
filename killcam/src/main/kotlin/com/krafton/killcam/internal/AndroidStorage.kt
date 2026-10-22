@@ -91,7 +91,10 @@ internal class AndroidPrefsProvider(private val context: Context) : PrefsProvide
  * on between requests. Table and column names from the dashboard are checked
  * against the schema before being put into SQL.
  */
-internal class AndroidDatabaseProvider(private val context: Context) : DatabaseProvider {
+internal class AndroidDatabaseProvider(
+    private val context: Context,
+    private val readOnly: Boolean = false,
+) : DatabaseProvider {
 
     override fun databases(): List<DbInfo> =
         context.databaseList()
@@ -128,9 +131,12 @@ internal class AndroidDatabaseProvider(private val context: Context) : DatabaseP
         val started = SystemClock.elapsedRealtime()
         val statement = sql.trim().trimEnd(';')
         if (statement.isEmpty()) return QueryResult.failure("Empty statement")
+        val verb = statement.substringBefore(' ').substringBefore('\n').lowercase()
+        if (readOnly && verb !in READ_VERBS) {
+            return QueryResult.failure("Read-only: this app installed Killcam with readOnlyDatabases")
+        }
         return runCatching {
             open(database).use { db ->
-                val verb = statement.substringBefore(' ').substringBefore('\n').lowercase()
                 if (verb in READ_VERBS) {
                     db.rawQuery(statement, null).use { cursor ->
                         read(cursor, MAX_ROWS).copy(elapsedMs = SystemClock.elapsedRealtime() - started)
@@ -148,7 +154,8 @@ internal class AndroidDatabaseProvider(private val context: Context) : DatabaseP
         if (name.contains('/')) throw ApiException(400, "Bad database name")
         val file = context.getDatabasePath(name)
         if (!file.isFile) throw ApiException(404, "No database '$name'")
-        return SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READWRITE)
+        val flags = if (readOnly) SQLiteDatabase.OPEN_READONLY else SQLiteDatabase.OPEN_READWRITE
+        return SQLiteDatabase.openDatabase(file.path, null, flags)
     }
 
     private fun tables(db: SQLiteDatabase): List<DbTable> =
