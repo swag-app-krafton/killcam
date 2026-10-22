@@ -30,6 +30,11 @@ public data class KillcamConfig @JvmOverloads constructor(
     /** Killcam refuses to start in non-debuggable builds unless this is set. */
     val allowNonDebuggable: Boolean = false,
     /**
+     * Databases open read-only: browsing and SELECT/PRAGMA queries work, any write is refused. For apps whose own
+     * database layer must stay the only writer (and never wait on Killcam's lock).
+     */
+    val readOnlyDatabases: Boolean = false,
+    /**
      * Logcat tags never copied into Logs; `Foo*` matches a prefix. Defaults to
      * framework and OEM chatter (a vivo compositor alone logs every frame).
      * Pass `DEFAULT_IGNORED_LOG_TAGS + setOf("MySdk")` to extend it.

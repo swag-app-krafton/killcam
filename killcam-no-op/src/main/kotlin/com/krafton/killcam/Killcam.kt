@@ -22,6 +22,9 @@ public object Killcam {
     @JvmStatic
     public val isInstalled: Boolean get() = false
 
+    /** The trace instant the real Killcam writes at install; the no-op never writes it. */
+    public const val TRACE_MARKER: String = "meta:killcam"
+
     @JvmStatic
     @Suppress("UNUSED_PARAMETER")
     public fun open(context: Context): Unit = Unit
@@ -114,6 +117,9 @@ public object Killcam {
 
     @JvmStatic @JvmOverloads @Suppress("UNUSED_PARAMETER")
     public fun registerMmkv(id: String, cryptKey: String? = null, multiProcess: Boolean = false): Unit = Unit
+
+    @JvmStatic @Suppress("UNUSED_PARAMETER")
+    public fun registerDatabaseDirectory(directory: java.io.File): Unit = Unit
 
     @JvmStatic @JvmOverloads @Suppress("UNUSED_PARAMETER")
     public fun registerAction(label: String, description: String? = null, group: String? = null, action: () -> String?): Unit = Unit

@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
     `java-library`
+    `maven-publish`
 }
 
 // Pure JVM on purpose: the store, mock engine and server run unchanged in unit
@@ -9,6 +10,13 @@ plugins {
 // without a phone. Everything Android-specific lives in :killcam.
 java {
     toolchain { languageVersion.set(JavaLanguageVersion.of(17)) }
+    withSourcesJar()
+}
+
+publishing {
+    publications {
+        register<MavenPublication>("maven") { from(components["java"]) }
+    }
 }
 
 kotlin {

@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    `maven-publish`
 }
 
 android {
@@ -10,6 +11,10 @@ android {
     defaultConfig {
         minSdk = 26
         consumerProguardFiles("consumer-rules.pro")
+    }
+
+    publishing {
+        singleVariant("release") { withSourcesJar() }
     }
 
     compileOptions {
@@ -39,4 +44,12 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(libs.junit)
     testImplementation(libs.okhttp)
+}
+
+publishing {
+    publications {
+        register<MavenPublication>("release") {
+            afterEvaluate { from(components["release"]) }
+        }
+    }
 }

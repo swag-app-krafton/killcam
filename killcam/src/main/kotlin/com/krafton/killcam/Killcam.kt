@@ -73,12 +73,27 @@ public object Killcam {
             created.core.extras.putAll(pendingInfo)
             runtime = created
             created.start()
+            markInstalled()
             return true
         }
     }
 
     @JvmStatic
     public val isInstalled: Boolean get() = runtime != null
+
+    /**
+     * A `meta:killcam` instant in any system trace recorded while Killcam runs, so a profiler (swagperf) can tell a
+     * build carrying Killcam from a clean one even when both share a package and neither is debuggable.
+     */
+    private fun markInstalled() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            android.os.Trace.beginAsyncSection(TRACE_MARKER, 0)
+            android.os.Trace.endAsyncSection(TRACE_MARKER, 0)
+        }
+    }
+
+    /** The trace instant [install] writes; swagperf rejects a capture containing it. */
+    public const val TRACE_MARKER: String = "meta:killcam"
 
     /** Opens the in-app inspector. */
     @JvmStatic
@@ -250,6 +265,18 @@ public object Killcam {
     public fun registerMmkv(id: String, cryptKey: String? = null, multiProcess: Boolean = false) {
         mmkvRegistry[id] = MmkvRegistration(cryptKey, multiProcess)
     }
+
+    /**
+     * SQLite files outside the app's `databases/` folder: every `*.db` under [directory], at any depth, appears in the
+     * Databases panel as `<directory name>:<path with ':' for '/'>` (a name travels in a URL path, where '/' cannot).
+     * They follow [KillcamConfig.readOnlyDatabases] like any other database.
+     */
+    @JvmStatic
+    public fun registerDatabaseDirectory(directory: java.io.File) {
+        databaseDirectories.add(directory)
+    }
+
+    internal val databaseDirectories = java.util.concurrent.CopyOnWriteArraySet<java.io.File>()
 
     // --------------------------------------------------------------- actions --
 
