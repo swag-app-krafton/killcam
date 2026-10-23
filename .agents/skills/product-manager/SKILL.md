@@ -213,8 +213,10 @@ Parked work is an item the user deliberately set aside after deciding what it sh
 
 | ID | Item | Parked | Write-up |
 |---|---|---|---|
+| F-019 | Swag Pay's camera scanner on the Replay timeline, with timings on every QR | 2026-09-25 | `docs/BACKLOG.md`, "Camera performance: Swag Pay's scanner" |
+| F-020 | Memory leaks from LeakCanary in Swag Pay's debug build | 2026-09-25 | `docs/BACKLOG.md`, "Camera performance: Swag Pay's scanner" |
 
-The table is empty: nothing has been parked yet. Items the user descoped from v1 (iOS, the Swag app, a hosted dashboard) are ordinary `backlog` items, not parked, because nobody has decided what they should be.
+Items the user descoped from v1 (iOS, the Swag app, a hosted dashboard) are ordinary `backlog` items, not parked, because nobody has decided what they should be.
 
 - **When the user parks something:** add a row here, and give its BACKLOG entry a **Decisions already taken** section and a **Revisit when** section.
 - **When the user brings it back:** remove its row.

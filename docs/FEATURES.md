@@ -12,6 +12,8 @@ A reference for everything Killcam does: what each feature gives you, how it wor
 
 Another session was rebuilding `dashboard/` while this was written (F-001), so dashboard line numbers refer to `b474131`. Check `git status` before relying on dashboard details.
 
+**Updated 2026-09-25** for the camera plan (F-019, F-020, T-015): sections 10–12, 14 and 34 and the in-flight table, read from `main` at `f342f03` and `swag-pay-killcam` at `15963f5`.
+
 **Status labels:**
 
 | Label | Meaning |
@@ -178,7 +180,8 @@ As of 2026-09-24, about 17:10 IST:
 | Work | Where | State |
 |---|---|---|
 | Dashboard rebuilt on swagperf's design system (F-001) | `44ec8e0` on `main` | ✅ Committed and pushed. F-001 stays in progress in the tracker until its remaining checks (the real server and the vivo) are done. |
-| Swag Pay integration | Worktree `~/Documents/swag-pay-killcam`, branch `killcam-integration` | 🚧 Uncommitted. |
+| Swag Pay integration | Worktree `~/Documents/swag-pay-killcam`, branch `killcam-integration` | 🌿 Committed as `d95293f` and `15963f5`, pushed, not merged (checked 2026-09-25). |
+| Camera performance in Swag Pay's scanner (F-019, F-020, T-015) | [BACKLOG: camera](BACKLOG.md#camera-performance-swag-pays-scanner), with swagperf | 📝 Planned 2026-09-25 by both product managers; the user answered Q10 and Q11, then **parked** it the same day until another app is the focus. No code. T-015 stays open. |
 | `main` doesn't build (B-001), and phones load a stale bundle (B-002) | `main` | `44ec8e0` commits the missing shell and a rebuilt bundle, and the dashboard typechecks there. Both rows stay open in the tracker for a developer to close. |
 
 F-002 (network conditions, fault injection, endpoint catalogue, repeat and breakpoints) was merged into `main` on 2026-09-24; see section 8.
@@ -215,7 +218,7 @@ F-002 (network conditions, fault injection, endpoint catalogue, repeat and break
   - Flag reads before install see no overrides.
   - `install` does disk I/O on the main thread (T-005).
   - A main process with a custom `android:process` name never installs (inferred).
-- **Open items:** T-005, F-004.
+- **Open items:** T-005, F-004 (Killcam's cost, measured by swagperf), F-016 (a trace marker written in `start()` and `onForeground()`).
 
 ## 2. KillcamConfig
 
@@ -483,7 +486,7 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
 - **Security:** Repeat sends real requests with the app's credentials; a header sent back as "██ redacted" is replaced by its real value on the phone, so the dashboard never sees it. A breakpoint on a main-thread call freezes the app for up to 120 s.
 - **Checked on:** unit tests; mock server (the dashboard on desktop and in `?embed=1`), 2026-09-24. Not on a phone.
 - **Tests:** `core-test/NetworkFaultsTest.kt` (11 tests), `core-test/EndpointsAndBreakpointsTest.kt` (6), `core-test/ServerTest.kt` (`networkConditionsAndRuleResetOverHttp`, `endpointCatalogBreakpointsAndRepeatOverHttp`); `killcam/src/test/kotlin/com/krafton/killcam/internal/NetworkFaultsTest.kt` (4). Eighteen interceptor tests against MockWebServer (throttling, drops, DNS-once-then-retry, repeat, breakpoints) passed on 2026-09-24 but live outside the repository, because `KillcamInterceptor` reads `Killcam.runtime`, which needs an `Application` (T-004).
-- **Open items:** T-003 (a phone run), T-004 (a seam so the interceptor tests can live in the repository). Remaining work is in [BACKLOG](BACKLOG.md#network-conditions-fault-injection-endpoint-catalogue-repeat-and-breakpoints).
+- **Open items:** T-003 (a phone run), T-004 (a seam so the interceptor tests can live in the repository), F-016 (the trace marker carries the conditions in force, which persist across restarts), F-004 (a measured run records them). Remaining work is in [BACKLOG](BACKLOG.md#network-conditions-fault-injection-endpoint-catalogue-repeat-and-breakpoints).
 
 ## 9. Logs
 
@@ -564,7 +567,10 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
   - B-013 (only `com.swag.*` frames are highlighted or blamed);
   - F-007 (no Clear in the UI);
   - F-011;
-  - T-003.
+  - T-003;
+  - T-014 (one `SwagErrors` definition, pinning the `error:js:` identity the bridge passes as `type`; the raw stack is kept verbatim, `KillcamCore.kt:262-267`);
+  - F-018 (crashes link out to swagperf's Stability page);
+  - F-020 (Swag Pay's debug build reports LeakCanary's leaks as non-fatal `leak: <class>` errors, through the existing `recordError`; confirmed by the user on 2026-09-25).
 
 ## 11. Timeline: screens, lifecycle, marks and markers
 
@@ -582,7 +588,7 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
     Each adds a `mark` event and a forced frame. **Marks are kept even while paused**, but the frame isn't.
   - **Custom markers:** `Killcam.timeline(label, props)`, "Action: <label>", "Deep link: <uri>", and the note "Screenshots skipped: secure window (FLAG_SECURE)".
   - Events are inserted in `ts` order. Types: `screen`, `tap`, `lifecycle`, `screenshot`, `mark`, `custom`.
-  - **In Swag Pay**, `KillcamTraceBridge` turns SwagTrace `screen:` markers into `Killcam.screen` calls, with properties such as `kind: compose`, `rn` or `native_view`. `action:` and `step:` markers become timeline markers, and `nav:` is skipped.
+  - **In Swag Pay**, `KillcamTraceBridge` turns SwagTrace `screen:` markers into `Killcam.screen` calls, with properties such as `kind: compose`, `rn` or `native_view`. `action:` and `step:` markers become timeline markers, and `nav:` is skipped. Only instant markers and async begins are forwarded (`debugtools/KillcamSetup.kt:54-57` at `15963f5`). Sync spans, counters and every async end are dropped (`trace/SwagTrace.android.kt:22-28,43,64,73,82`), so no duration reaches Killcam (F-019).
 - **Code:** `android/Killcam.kt:151-168`; `android/internal/KillcamRuntime.kt:107-122`; `android/internal/ActivityTracker.kt:21-57`; `core/store/KillcamStore.kt:337-369`; `core/server/KillcamServer.kt:216-227`.
 - **API:** `screen(name, properties)`, `timeline(label, properties)`, `mark(label)`. HTTP: `GET /api/timeline`, `POST /api/timeline/mark {label?}`; live event `timeline`.
 - **Limits:** 5,000 events; screen fallback after 800 ms; frame after a screen change at 450 ms.
@@ -590,7 +596,7 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
 - **Security:** n/a.
 - **Checked on:** device vivo V2514 in Swag Pay: lifecycle, screens from SwagTrace, `action:` and `step:` markers, all in time order. Marking a moment from the phone was not tried.
 - **Tests:** `CoreUnitTest.pausedStoreDropsDataButKeepsMarks`; `ServerTest.writesNeedKillcamHeader`, `liveStreamDeliversEvents`.
-- **Open items:** T-013 (an unreachable 409), T-003.
+- **Open items:** T-013 (an unreachable 409), T-003, F-019 (Swag Pay's camera events through the bridge, with a timed summary on every QR and at close).
 
 ## 12. Screenshots
 
@@ -629,7 +635,8 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
   - Dialogs, bottom sheets, popups and toasts are separate windows and never appear (F-008).
   - The software crash frame misses SurfaceView, TextureView and GPU content.
   - `POST /api/screenshot` has no timeout if the main thread is blocked (inferred).
-- **Open items:** B-003, B-015, F-008, F-004.
+  - A live camera preview, such as Swag Pay's scanner on Home, is in frames only if it is drawn through a TextureView; a SurfaceView, CameraX's `PERFORMANCE` mode, is probably left out (inferred, not checked; T-015).
+- **Open items:** B-003, B-015, F-008, F-004, T-015.
 
 ## 13. Taps
 
@@ -668,6 +675,7 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
     - for the live session, a Live button that follows the head, and "Capture a screenshot now".
   - **The scrubber** is a slider (←/→ ±1 s, Shift ±5 s), with the last 15 s banded.
   - **The feed** merges timeline events, every network call, events, W/E/A log lines and this session's crashes, sorted by `ts` then `seq`. Its filters are UI, Network, Logs, Events and Shots; Shots is off by default. Clicking an item seeks to it. Calls and crashes open a drawer with their detail.
+  - **Custom markers** (`Killcam.timeline(label, properties)`) show their label only; their properties aren't shown (`dash/panels/ReplayPanel.tsx:83` at `f342f03`). Analytics events show up to 3 attributes (`:92-98`). F-019 needs markers to show theirs.
   - **Where it starts:** 15 s before a focus link, or before a crash; else at the live head; else at the start.
 - **Code:** `dash/panels/ReplayPanel.tsx`: feed `:93-144`, start position `:199-207`, playback `:222-249`, hotkeys `:322-328`, scrubber `:585-651`, ticks `:653-690`.
 - **API:** reads `view.timeline`, `view.network`, `view.logs` and `view.sessionCrashes`, plus screenshots and `POST /api/screenshot`.
@@ -685,7 +693,7 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
   - Ticks aren't virtualised: up to 5,000 DOM nodes live (inferred).
   - The drawer has no focus management.
   - The feed hides V, D and I log lines, with no toggle.
-- **Open items:** F-001, T-010, B-015.
+- **Open items:** F-001, T-010, B-015, F-019 (show a custom marker's properties).
 
 ## 15. Sessions and bug bundles
 
@@ -722,28 +730,33 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
 - **Security:** ids are checked before touching disk. A bundle holds everything captured, including unredacted bodies, and sharing sends it to any app the tester picks.
 - **Checked on:** demo server and mock server; unit tests. **Sharing from a phone has not been tried** (T-003).
 - **Tests:** `ServerTest.saveExportAndCrashRecovery`. Delete, pruning, exporting saved sessions and sharing are untested.
-- **Open items:** F-006 (share and export saved sessions; the download-listener watch-out), F-001 (the Sessions page and delete), B-015, T-013.
+- **Open items:** F-006 (share and export saved sessions; the download-listener watch-out), F-001 (the Sessions page and delete), B-015, T-013, F-018 (`screens: string[]` on `SessionSummary`, a contract change, so swagperf can link sessions by screen).
 
 ## 16. Pausing capture and clearing data
 
 - **Status:** ✅ `b474131`
 - **What it gives you:** stop recording without uninstalling, and clear one stream or all of them.
 - **How it works:**
-  - **While paused**, these are dropped: new calls (mocks still apply), logs, timeline events and screenshots. **Marks and crashes are kept.**
+  - **While paused**, these are dropped: new calls (mocks and network conditions still apply), logs, timeline events and screenshots. **Marks and crashes are kept.**
+  - Dropped calls, logs and timeline events are dropped before they are built or JSON-encoded (`KillcamStore.kt:145,298,371` at `f342f03`).
   - Pausing emits a `status` event.
   - **Clearing** takes one of `network`, `logs`, `crashes`, `timeline` or `all`, and emits `cleared`. It doesn't touch saved sessions, mocks, flags or screenshot files.
   - **Dashboard:**
     - Pause/Resume is in the top bar (or the ⋯ sheet on the phone), with the toast "Capture paused: nothing new is recorded";
     - Network and Logs each have Clear; there is no Clear for crashes, the timeline or everything (F-007).
-- **Code:** `core/store/KillcamStore.kt:70,130,272,345,373-388`; `core/KillcamCore.kt:110-113`; `core/server/KillcamServer.kt:184-191`; `dash/shell/actions.ts:11-20` (🚧).
+- **Code:** at `f342f03`: `core/store/KillcamStore.kt:73` (the flag), `:145,298,371` (the drops), `:399` (clear); `core/KillcamCore.kt:144-147` (`setPaused`); `core/server/KillcamServer.kt:192-199`; `android/internal/ScreenCapture.kt:51-57,122`; `dash/shell/actions.ts:11-20` (🚧).
 - **API:** HTTP: `POST /api/capture {paused}` (returns `KillcamStatus`); `DELETE /api/data?stream=…` (204; an unknown stream gives 400).
 - **Limits:** n/a.
 - **Survives a restart:** no; a restart always records.
 - **Security:** n/a.
 - **Checked on:** mock server; unit tests at the store level.
 - **Tests:** `CoreUnitTest.pausedStoreDropsDataButKeepsMarks`. The endpoints are untested.
-- **Notes:** pausing does not stop the logcat process, request-body serialisation or event encoding (T-005). Logcat lines from the paused period are skipped for good, not held back (section 9).
-- **Open items:** B-005 (the phone doesn't show the pause), B-015, F-007, T-005.
+- **Notes:**
+  - **Paused isn't "off".** Pausing doesn't stop the logcat process (T-005), request-body serialisation (B-016) or the settle timer: the timer still wakes the main thread every 2,500 ms, and `capturable()` then returns nothing (`ScreenCapture.kt:51-57,122`). Mocks and network conditions still apply (`KillcamInterceptor.kt:65`).
+  - Corrected on 2026-09-24 from the code at `f342f03`: this section used to say pausing doesn't stop event encoding. It does, for what it drops. T-005's point stands for the time capture isn't paused: events are encoded even when no dashboard is listening.
+  - Logcat lines from the paused period are skipped for good, not held back (section 9).
+  - F-016 writes the pause state into the trace, and swagperf doesn't measure a paused state (F-004, Q9).
+- **Open items:** B-005 (the phone doesn't show the pause; F-016's callback would fix it), B-015, F-007, T-005, F-004, F-016.
 
 ## 17. Flags
 
@@ -1017,7 +1030,7 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
   - the server-error page is inserted unescaped (low risk).
 - **Checked on:** device vivo V2514 in Swag Pay: it opens full screen from the bubble, with no status-bar overlap and no duplicate header, and Logs shows 351 lines. That was with the **old** page UI. The bridge features (Close, Share, the Wi-Fi switch) need the new bundle (B-002) and were not tried.
 - **Tests:** untested.
-- **Open items:** B-002, F-001, F-006 (the download listener; sharing saved sessions), T-001, T-003.
+- **Open items:** B-002, F-001, F-006 (the download listener; sharing saved sessions), T-001, T-003, F-017 (a fourth place for the same dashboard: `?embed=swagperf` in swagperf's lane, with a loopback-only `frame-ancestors` policy).
 
 ## 27. Dashboard shell
 
@@ -1039,6 +1052,13 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
     - it accepts 4–8 digits (`autocomplete=one-time-code`);
     - it parks requests and replays them after a correct PIN;
     - it shows "Wrong PIN, try again." or "Device unreachable.".
+  - **Loading** (🚧): every page has one shimmer skeleton in the page's own layout. It uses the same design-system cards and tables, the real titles and column headers, and bones where the data goes.
+    - It shows while the page's code chunk downloads (the shell's `Suspense` fallback) and again while the page's data loads. The two look the same, so there is one loader, and nothing moves when the data arrives.
+    - Toolbars that don't wait for data stay up, and only the list below them shimmers: Network, Logs, and Mocks' network conditions.
+    - It appears after 150 ms, so a fast load doesn't flash.
+    - It is `aria-busy`, with a hidden "Loading …" status, and its bones are `inert`.
+    - The shimmer stops under `prefers-reduced-motion`.
+    - Spinners inside buttons stay.
   - **Dialogs** are the dashboard's own, because `window.confirm` and `window.prompt` do nothing in an Android WebView. Opening a new one resolves the open one with null.
   - **Android Back:** each sheet or dialog owns one history entry, so Back closes it.
   - **Shortcuts:**
@@ -1066,7 +1086,7 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
     | `killcam.logs.hiddenTags` | hidden log tags |
 
     Storage is per origin, so `localhost:8090`, the Wi-Fi address and Vite's `:5173` each keep their own.
-- **Code:** `dash/state/router.ts`, `dash/shell/routes.ts`, `dash/state/app.ts`, `dash/state/store.ts`, `dash/state/ui.ts`, `dash/api/client.ts`, `dash/lib/back.ts`, `dash/lib/hooks.ts`, `dash/lib/storage.ts`; 🚧 `dash/shell/AppShell.tsx`, `Sidebar.tsx`, `TopBar.tsx`, `PageHeader.tsx`, `SessionPicker.tsx`, `SessionDetails.tsx`, `PinScreen.tsx`, `Embed.tsx`, `actions.ts`; `dash/kit/overlays.tsx`.
+- **Code:** `dash/state/router.ts`, `dash/shell/routes.ts`, `dash/state/app.ts`, `dash/state/store.ts`, `dash/state/ui.ts`, `dash/api/client.ts`, `dash/lib/back.ts`, `dash/lib/hooks.ts`, `dash/lib/storage.ts`; 🚧 `dash/shell/AppShell.tsx`, `Sidebar.tsx`, `TopBar.tsx`, `PageHeader.tsx`, `SessionPicker.tsx`, `SessionDetails.tsx`, `PinScreen.tsx`, `Embed.tsx`, `actions.ts`; `dash/kit/overlays.tsx`; 🚧 `dash/kit/Skeleton.tsx` (the shimmer, the delay and the busy region), `dash/kit/skeletons.tsx` (one skeleton per page, and `RouteSkeleton`), `dash/kit/skeleton.module.css`.
 - **API:** the HTTP client sends `X-Killcam: 1` on writes, uses page-relative `api/…` URLs, and turns a network failure into "Device unreachable".
 - **Limits:** up to 4 toasts, removed after 3,800 ms each.
 - **Survives a restart:** the browser storage above.
@@ -1074,6 +1094,11 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
 - **Checked on:**
   - mock server and demo server: headless Chrome at 1440×900 and 390×844 for the old shell;
   - the new shell at 1440 px and 412 px (`?embed=1&fakeNative=1`) on 2026-09-24 16:07, with no console errors and no overflow.
+  - The loading skeletons, on 2026-09-25, in headless Chrome against the mock server:
+    - viewports: 1440×900 and 412×915 (`?embed=1`);
+    - every page's skeleton was screenshotted beside its loaded page, with API responses and page chunks held over CDP;
+    - dark and light themes;
+    - column positions matched exactly on the fixed-width tables (Network, Endpoints, Crashes, Remote Config). Tables sized by their content (Mocks, Flags, Sessions, Storage) drift by up to about 90 px.
   - Not on a phone.
 - **Tests:** none (T-004).
 - **Open items:** B-001, F-001 (with the "Checks before it lands" list), B-011, B-014, T-009, T-010.
@@ -1126,7 +1151,7 @@ These pages present features described above: calls in section 5, logs in sectio
 - **Survives a restart:** n/a.
 - **Checked on:** mock server (the rebuilt shell).
 - **Tests:** the vendored tests can't run here (T-004).
-- **Open items:** T-008 (two copies that can drift; Q2), T-009.
+- **Open items:** T-008 (two copies that can drift; Q2. Planned: a lock check, and `kit/`'s generic parts upstream into swagperf's design system; at `f342f03` the lock is `d007f5a`, still swagperf's HEAD), T-009.
 
 ## 30. Rozenite panel
 
@@ -1237,7 +1262,7 @@ These pages present features described above: calls in section 5, logs in sectio
 
 ## 34. Swag Pay integration
 
-- **Status:** 🚧 uncommitted, in the worktree `~/Documents/swag-pay-killcam`, branch `killcam-integration`, based on `aa5482a`.
+- **Status:** 🌿 `killcam-integration` `15963f5` in `swag-pay` (worktree `~/Documents/swag-pay-killcam`), based on `aa5482a`: `d95293f` "Killcam in debug builds", then `15963f5`, a layout change to Home's lab buttons. Pushed, not merged (checked 2026-09-25).
 - **What it gives you:** Killcam in Swag Pay's debug build, with every Compose, React Native and native screen named from SwagTrace, with no per-screen code.
 - **How it works:**
   - **`apps/mobile/settings.gradle.kts`:** `includeBuild` of the sibling Killcam checkout (default `../../../killcam`, overridden by `-Pkillcam.dir`), only if it exists.
@@ -1252,11 +1277,14 @@ These pages present features described above: calls in section 5, logs in sectio
 - **Tests:** none.
 - **Open items:**
   - T-006 (needs a sibling checkout);
-  - T-007 (the bridge runs in release);
+  - T-007 (the bridge runs in release; P1, to land before `killcam-integration` merges);
   - F-005 (no network capture);
   - T-002 (no redaction);
   - F-004 and swagperf B-009 (never a performance run);
-  - T-003.
+  - F-016 (the build names Killcam in its traces);
+  - T-014 (one `SwagTrace` and `SwagErrors` definition for both readers, which gains the `camera:` family);
+  - T-003;
+  - F-019 (the scanner's camera events on the Replay timeline) and F-020 (LeakCanary's leaks in Killcam), both parked on 2026-09-25; and T-015 (the camera preview in Home's frames), open: the [camera plan](BACKLOG.md#camera-performance-swag-pays-scanner).
 
 ## 35. Build, commands and bundling
 
