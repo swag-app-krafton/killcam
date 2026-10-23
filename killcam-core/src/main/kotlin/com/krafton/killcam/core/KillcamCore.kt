@@ -38,8 +38,6 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
-public const val KILLCAM_VERSION: String = "0.1.0"
-
 /** Flags group under which Firebase Remote Config keys are mirrored. */
 public const val REMOTE_CONFIG_GROUP: String = "Firebase Remote Config"
 
