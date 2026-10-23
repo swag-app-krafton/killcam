@@ -1,0 +1,315 @@
+/* Shimmer placeholders, drawn from the vendored design system's tokens so they
+   sit correctly in both themes. A bone is the shape of the value it stands in
+   for; the page around it is the real layout. */
+
+.region {
+  animation: fade-in var(--dur-fast, 120ms) ease-out both;
+}
+
+.bone {
+  display: inline-block;
+  flex: none;
+  vertical-align: middle;
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+  background-color: var(--s3);
+  background-image: linear-gradient(90deg, transparent 0%, var(--line2) 50%, transparent 100%);
+  background-repeat: no-repeat;
+  background-size: 50% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.block {
+  display: block;
+}
+
+/* The skeleton's content keeps the layout it is given: a page column stays a column. */
+.body {
+  display: contents;
+}
+
+/* Bones on the dark console surface (Logs). */
+.onConsole {
+  background-color: var(--con-line);
+  background-image: linear-gradient(90deg, transparent 0%, var(--con-line2) 50%, transparent 100%);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: -150% 0;
+  }
+  to {
+    background-position: 250% 0;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bone {
+    animation: none;
+    background-image: none;
+  }
+  .region {
+    animation: none;
+  }
+}
+
+/* ---- Page frames that mirror the loaded pages' own CSS modules. ---- */
+
+/* Network and Logs: the page column. */
+.page {
+  flex: 1 1 0;
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.console {
+  flex: 1 1 0;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  background: var(--con-bg);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.consoleLine {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 24px;
+  padding: 0 12px;
+  overflow: hidden;
+}
+
+.consoleLinePhone {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--con-line);
+}
+
+.plist {
+  flex: 1 1 0;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  background: var(--s1);
+  border: 1px solid var(--line);
+}
+
+.plistRow {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  height: 56px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Replay: the player beside the event feed. Mirrors Replay.module.css, whose
+   phone takes the height its stage leaves (a size container). */
+.replayWrap {
+  container: kc-replay-skeleton / inline-size;
+  flex: 1 1 0;
+  min-height: 560px;
+  display: flex;
+}
+
+.replayGrid {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 20px;
+}
+
+.replayCol {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.replayHud {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.replayStage {
+  flex: 1;
+  min-height: 300px;
+  container-type: size;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  background: var(--bg);
+}
+
+.replayPhone {
+  --ar: 0.4615;
+  padding: 9px;
+  border-radius: 30px;
+  background: #000;
+  box-shadow:
+    0 0 0 1px var(--line2),
+    var(--shadow);
+}
+
+.replayScreen {
+  height: min(calc(100cqh - 20px), calc((100cqw - 20px) / var(--ar)));
+  aspect-ratio: var(--ar);
+  border-radius: 22px;
+  overflow: hidden;
+}
+
+.replayTransport {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.replayFeedHead {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+@container kc-replay-skeleton (max-width: 860px) {
+  .replayGrid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 420px;
+    height: max-content;
+  }
+  .replayStage {
+    height: 52vh;
+    min-height: 280px;
+    flex: none;
+  }
+}
+
+.feedRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Storage: the list of stores beside a store's contents. */
+.storageLayout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+/* Same breakpoint as Storage.module.css. */
+@media (max-width: 900px) {
+  .storageLayout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.storeItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--line);
+}
+
+/* A detail pane's key-value rows (Network call, crash). */
+.detailRow {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  min-height: 30px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Mirrors the design system's KpiTile, whose value only takes text. */
+.kpiTile {
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 18px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.kpiLabel {
+  font: 600 11px var(--font-ui);
+  letter-spacing: 0.12em;
+  color: var(--tx2);
+  text-transform: uppercase;
+}
+
+/* A key on the phone: key and delete, the value editor, then its type. */
+.entryRow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+}
+
+/* Storage's database list: a database's name above its tables. */
+.storeGroupHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 6px;
+  border-top: 1px solid var(--line);
+}
+
+.storeSub {
+  padding-left: 30px;
+}

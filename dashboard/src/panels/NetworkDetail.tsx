@@ -16,6 +16,7 @@ import type { SessionView } from '../state/session';
 import { createStore, useStore } from '../state/store';
 import s from './Network.module.css';
 import { RepeatButton } from './RepeatDialog';
+import { CallDetailSkeleton } from '../kit/skeletons';
 
 type Tab = 'overview' | 'request' | 'response' | 'curl';
 const tabStore = createStore<{ tab: Tab }>({ tab: 'overview' });
@@ -105,9 +106,7 @@ export function NetworkDetail({ summary, view, onClose, closeOnBack }: { summary
       }
     >
       {loading && !call ? (
-        <Text variant="small" tone="muted">
-          Loading the call…
-        </Text>
+        <CallDetailSkeleton />
       ) : error ? (
         <Banner tone="fail" title="Could not load this call">
           {errorMessage(error)}

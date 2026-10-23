@@ -11,6 +11,7 @@ import { appStore } from '../state/app';
 import { focusPath, navigate } from '../state/router';
 import { useStore } from '../state/store';
 import { toast } from '../state/ui';
+import { RemoteConfigSkeleton } from '../kit/skeletons';
 
 const STATUS: Record<RemoteConfigFetchStatus, { tone: 'pass' | 'warn' | 'fail' | 'neutral'; word: string }> = {
   success: { tone: 'pass', word: 'Fetched' },
@@ -66,7 +67,7 @@ export function RemoteConfigPanel() {
       </EmptyState>
     );
   }
-  if (!info) return <EmptyState>Loading Remote Config…</EmptyState>;
+  if (!info) return <RemoteConfigSkeleton />;
 
   const override = (v: RemoteConfigValue) => (overrides.has(v.key) ? (overrides.get(v.key) ?? null) : v.flagOverride);
   const columns: ExpandableColumn[] = embed

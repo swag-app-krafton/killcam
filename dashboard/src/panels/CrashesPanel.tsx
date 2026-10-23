@@ -8,6 +8,7 @@ import { navigate, routePath, useRoute } from '../state/router';
 import { useSessionView } from '../state/session';
 import { useStore } from '../state/store';
 import { CrashBody, FatalPill } from './crashDetail';
+import { CrashesSkeleton } from '../kit/skeletons';
 
 type Filter = 'all' | 'fatal' | 'nonfatal';
 
@@ -26,7 +27,7 @@ export function CrashesPanel() {
   const here = (c: CrashSummary) => view.kind === 'saved' || c.sessionId === liveId;
   const last = view.crashes[0] ?? null;
 
-  if (view.status === 'loading' && !view.crashes.length) return <EmptyState>Loading crashes…</EmptyState>;
+  if (view.status === 'loading' && !view.crashes.length) return <CrashesSkeleton />;
   if (!view.crashes.length) {
     return (
       <EmptyState title="No crashes recorded">

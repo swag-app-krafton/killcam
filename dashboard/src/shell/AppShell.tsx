@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, type ComponentType } from 'react';
-import { Spinner } from '@/design';
 import { authStore } from '../api/client';
 import { DialogHost, ToastHost } from '../kit/overlays';
+import { RouteSkeleton } from '../kit/skeletons';
 import { useHighlightTarget } from '../lib/highlight';
 import { useHotkeys } from '../lib/hooks';
 import { useIsNarrow } from '../lib/media';
@@ -94,7 +94,7 @@ export function AppShell() {
             {!embed && <ConnectionBanner />}
             <BreakpointTray />
             <ConditionsBanner />
-            <Suspense fallback={<Spinner />}>
+            <Suspense fallback={<RouteSkeleton panel={route.panel} />}>
               <Page />
             </Suspense>
           </div>

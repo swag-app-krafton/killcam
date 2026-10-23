@@ -9,6 +9,7 @@ import { focusReplay } from '../state/app';
 import { navigate } from '../state/router';
 import { sessionKeyFor, type SessionView } from '../state/session';
 import { useStore } from '../state/store';
+import { StackTraceSkeleton } from '../kit/skeletons';
 
 /** Open Replay on the 15 s before a crash and play them. */
 export function replayCrash(crash: CrashSummary, view: SessionView): void {
@@ -63,9 +64,7 @@ export function CrashBody({ crash, view, showReplay = true }: { crash: CrashSumm
         </Row>
       )}
       {loading && !data ? (
-        <Text variant="small" tone="muted">
-          Loading the stack trace…
-        </Text>
+        <StackTraceSkeleton />
       ) : error ? (
         <Banner tone="fail" title="Could not load the stack trace">
           {errorMessage(error)}

@@ -9,6 +9,7 @@ import { appStore } from '../state/app';
 import { useRoute } from '../state/router';
 import { useStore } from '../state/store';
 import { confirmDialog, toast } from '../state/ui';
+import { FlagsSkeleton } from '../kit/skeletons';
 
 async function setFlag(key: string, value: string): Promise<boolean> {
   try {
@@ -70,7 +71,7 @@ export function FlagsPanel() {
     return [...map.entries()].sort(([a], [b]) => (a === 'Other' ? 1 : b === 'Other' ? -1 : a.localeCompare(b)));
   }, [flags, q, overridesOnly]);
 
-  if (!flags) return <EmptyState>Loading flags…</EmptyState>;
+  if (!flags) return <FlagsSkeleton />;
   if (!flags.length) {
     return (
       <EmptyState title="No flags declared">

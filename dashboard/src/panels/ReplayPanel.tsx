@@ -15,6 +15,7 @@ import { toast } from '../state/ui';
 import { CrashBody } from './crashDetail';
 import { NetworkDetail } from './NetworkDetail';
 import s from './Replay.module.css';
+import { ReplaySkeleton } from '../kit/skeletons';
 
 const LAST_MS = 15_000;
 const TAP_WINDOW_MS = 1_500;
@@ -129,7 +130,7 @@ export function ReplayPanel() {
   const view = useSessionView();
   const focus = useStore(appStore, (x) => x.replayFocus);
   if (view.status === 'error') return <EmptyState title="Could not load this session">{view.error}</EmptyState>;
-  if (view.status === 'loading' && !view.timeline.length) return <EmptyState>Loading the session…</EmptyState>;
+  if (view.status === 'loading' && !view.timeline.length) return <ReplaySkeleton />;
   return <Replay key={`${view.key}:${view.sessionId}`} view={view} focus={focus} />;
 }
 

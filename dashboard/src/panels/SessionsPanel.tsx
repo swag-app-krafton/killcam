@@ -8,6 +8,7 @@ import { appStore } from '../state/app';
 import { navigate } from '../state/router';
 import { useStore } from '../state/store';
 import { deleteSession, exportHref, sessionDuration, sessionReason, sessionTitle } from '../shell/actions';
+import { SessionsSkeleton } from '../kit/skeletons';
 
 type Kind = 'all' | 'live' | 'crash' | 'manual';
 type Key = 'title' | 'start' | 'length' | 'reason' | 'version' | 'shots' | 'events';
@@ -75,7 +76,7 @@ export function SessionsPanel() {
     appStore.set({ selected: x.live ? 'live' : x.id });
     navigate('replay');
   };
-  if (!sessions) return <EmptyState>Loading sessions…</EmptyState>;
+  if (!sessions) return <SessionsSkeleton />;
   const counts = { live: all.filter((x) => x.live).length, crash: all.filter((x) => x.reason === 'crash').length, manual: all.filter((x) => !x.live && x.reason === 'manual').length };
   const key = (x: SessionSummary) => (x.live ? 'live' : x.id);
 

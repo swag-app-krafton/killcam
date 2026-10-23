@@ -13,6 +13,7 @@ import { navigate } from '../state/router';
 import { useStore } from '../state/store';
 import { confirmDialog, toast } from '../state/ui';
 import { emptyRule } from './MocksPanel';
+import { EndpointsSkeleton, JsonSkeleton } from '../kit/skeletons';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const CATALOGUE_PATH = 'app/src/debug/assets/killcam-endpoints.json';
@@ -93,7 +94,7 @@ export function EndpointsPanel() {
     return [...m.entries()];
   }, [endpoints, q]);
 
-  if (!endpoints) return <EmptyState>Loading endpoints…</EmptyState>;
+  if (!endpoints) return <EndpointsSkeleton />;
   const unexported = endpoints.filter((e) => e.unexported).length;
   const add = () => setEditing({ input: { key: '', matchType: 'contains' }, isNew: true });
   const remove = async (e: Endpoint) => {
@@ -425,7 +426,7 @@ function ExportDialog({ unexported, onClose }: { unexported: number; onClose: ()
           Commit this file to the app repo at <code>{CATALOGUE_PATH}</code> (any debug asset path works) and open a pull request. The next debug build
           ships it to everyone. With the phone on USB, <code>scripts/pull-endpoints.sh {CATALOGUE_PATH}</code> writes it in place.
         </Text>
-        <TextArea mono rows={16} readOnly value={json ?? 'Loading…'} />
+        {json == null ? <JsonSkeleton /> : <TextArea mono rows={16} readOnly value={json} />}
         <Row gap={8}>
           <Spacer />
           {json && <CopyAction text={json} label="Copy the catalogue" />}

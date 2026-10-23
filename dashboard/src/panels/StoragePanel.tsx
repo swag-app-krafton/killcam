@@ -25,6 +25,8 @@ import { ConsoleBlock, ConsolePre, JsonBlock, hexDump, tryParseJson } from '../k
 import { IconBtn, SelectInput, TextInput } from '../kit/controls';
 import { ValueEditor, validateValue, type ValueType } from '../kit/editors';
 import { KIcon } from '../kit/Icon';
+import { Bone } from '../kit/Skeleton';
+import { EntriesSkeleton, FileRowsSkeleton, FilesSkeleton, StoreSkeleton, TableRowsSkeleton, TextLinesSkeleton } from '../kit/skeletons';
 import { Dock, KDialog } from '../kit/overlays';
 import { fmt, fmtBytes, fmtDateTime, looksLikeEpochMs, plural } from '../lib/format';
 import { useAsync } from '../lib/hooks';
@@ -178,7 +180,10 @@ function EntriesCard({
       }
     >
       <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <SearchInput label="Filter keys" placeholder="Filter keys and values" value={q} onChange={setQ} />
+        {/* In a row: SearchInput grows with flex: 1, which in this column would squash its height. */}
+        <Row>
+          <SearchInput label="Filter keys" placeholder="Filter keys and values" value={q} onChange={setQ} />
+        </Row>
         {note}
       </div>
       {adding && <AddEntry types={types} onCancel={() => setAdding(false)} onAdd={async (e) => (await put(e)) && setAdding(false)} />}
@@ -287,7 +292,7 @@ function PrefsView({ file }: { file: string | null }) {
     if (!file && files.data?.length) navigate(routePath('storage', 'prefs', files.data[0].name), { replace: true });
   }, [file, files.data]);
   if (files.error) return <LoadError what="prefs" error={files.error} onRetry={files.reload} />;
-  if (!files.data) return <EmptyState>Loading preferences…</EmptyState>;
+  if (!files.data) return <StoreSkeleton kind="prefs" />;
   if (!files.data.length) return <EmptyState title="No shared preferences">The app has not written a SharedPreferences file yet.</EmptyState>;
   return (
     <div className={s.layout}>
@@ -306,7 +311,7 @@ function PrefsView({ file }: { file: string | null }) {
 function PrefEntries({ file, onChanged }: { file: string; onChanged: () => void }) {
   const entries = useAsync((sig) => api.get<PrefEntry[]>(`prefs/${enc(file)}`, undefined, sig), [file]);
   if (entries.error) return <LoadError what="prefs" error={entries.error} onRetry={entries.reload} />;
-  if (!entries.data) return <EmptyState>Loading {file}…</EmptyState>;
+  if (!entries.data) return <EntriesSkeleton />;
   return (
     <EntriesCard
       title={file}
@@ -349,7 +354,7 @@ function MmkvView({ id }: { id: string | null }) {
     if (!id && list.data?.length) navigate(routePath('storage', 'mmkv', (list.data.find((m) => !m.error) ?? list.data[0]).id), { replace: true });
   }, [id, list.data]);
   if (list.error) return <LoadError what="mmkv" error={list.error} onRetry={list.reload} />;
-  if (!list.data) return <EmptyState>Loading MMKV…</EmptyState>;
+  if (!list.data) return <StoreSkeleton kind="mmkv" />;
   if (!list.data.length)
     return (
       <EmptyState title="No MMKV instances">
@@ -395,7 +400,7 @@ function MmkvView({ id }: { id: string | null }) {
 function MmkvEntries({ inst, onChanged }: { inst: MmkvInstance; onChanged: () => void }) {
   const entries = useAsync((sig) => api.get<MmkvEntry[]>(`mmkv/${enc(inst.id)}`, undefined, sig), [inst.id]);
   if (entries.error) return <LoadError what="mmkv" error={entries.error} onRetry={entries.reload} />;
-  if (!entries.data) return <EmptyState>Loading {inst.id}…</EmptyState>;
+  if (!entries.data) return <EntriesSkeleton mmkv />;
   return (
     <EntriesCard
       title={inst.id}
@@ -448,7 +453,7 @@ function DbView({ db, table }: { db: string | null; table: string | null }) {
     }
   }, [db, dbs.data]);
   if (dbs.error) return <LoadError what="databases" error={dbs.error} onRetry={dbs.reload} />;
-  if (!dbs.data) return <EmptyState>Loading databases…</EmptyState>;
+  if (!dbs.data) return <StoreSkeleton kind="db" />;
   if (!dbs.data.length) return <EmptyState title="No SQLite databases">The app has not created a database yet.</EmptyState>;
   const info = dbs.data.find((d) => d.name === db) ?? null;
   return (
@@ -526,7 +531,7 @@ function TableBrowser({ db, table }: { db: string; table: string }) {
   return (
     <FlushCard
       title={table}
-      hint={r ? `${total != null ? plural(total, 'row') : ''} · read in ${fmt(r.elapsedMs)} ms` : 'Loading…'}
+      hint={r ? `${total != null ? plural(total, 'row') : ''} · read in ${fmt(r.elapsedMs)} ms` : <Bone w={130} h={11} />}
       aside={
         <Row gap={4}>
           <IconBtn icon="skip-back" size="sm" outlined label="First page" disabled={offset === 0} onClick={() => setOffset(0)} />
@@ -542,9 +547,7 @@ function TableBrowser({ db, table }: { db: string; table: string }) {
       }
     >
       {!r ? (
-        <div style={{ padding: 24 }}>
-          <Text variant="small">Loading…</Text>
-        </div>
+        <TableRowsSkeleton />
       ) : r.error ? (
         <div style={{ padding: 16 }}>
           <Banner tone="fail" title="The query failed">
@@ -716,7 +719,7 @@ function FilesView({ root, path }: { root: string | null; path: string }) {
   }, [root, roots.data]);
   useEffect(() => setOpen(null), [root, path]);
   if (roots.error) return <LoadError what="files" error={roots.error} onRetry={roots.reload} />;
-  if (!roots.data) return <EmptyState>Loading files…</EmptyState>;
+  if (!roots.data) return <FilesSkeleton />;
   if (!roots.data.length) return <EmptyState title="No folders shared">The app shares no folder with Killcam.</EmptyState>;
   const rootInfo = roots.data.find((r) => r.id === root) ?? null;
   const segs = path.split('/').filter(Boolean);
@@ -786,7 +789,7 @@ function FilesView({ root, path }: { root: string | null; path: string }) {
                 </tr>
               )}
               {!list.data ? (
-                <TableEmptyRow colSpan={embed ? 3 : 4}>Loading…</TableEmptyRow>
+                <FileRowsSkeleton />
               ) : list.data.length === 0 ? (
                 <TableEmptyRow colSpan={embed ? 3 : 4}>This folder is empty.</TableEmptyRow>
               ) : (
@@ -869,7 +872,7 @@ function FileViewer({ root, file, onClose, onDelete, onDownload }: { root: strin
       ) : content.error ? (
         <LoadError what="files" error={content.error} onRetry={content.reload} />
       ) : !decoded ? (
-        <Text variant="small">Loading…</Text>
+        <TextLinesSkeleton />
       ) : decoded.binary ? (
         <ConsoleBlock label={`Binary · first ${fmt(Math.min(512, file.size))} bytes`}>
           <ConsolePre>{decoded.text}</ConsolePre>

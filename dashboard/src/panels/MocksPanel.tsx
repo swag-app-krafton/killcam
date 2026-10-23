@@ -13,6 +13,7 @@ import { appStore } from '../state/app';
 import { useStore } from '../state/store';
 import { confirmDialog, toast } from '../state/ui';
 import { NetworkConditionsCard } from './NetworkConditions';
+import { MocksSkeleton } from '../kit/skeletons';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 const MATCH: { value: MatchType; label: string; hint: string }[] = [
@@ -159,7 +160,7 @@ export function MocksPanel() {
   };
   const edit = (r: MockRule) => setEditing({ id: r.id, input: toInput(r), testUrl: '' });
 
-  if (!mocks) return <EmptyState>Loading rules…</EmptyState>;
+  if (!mocks) return <MocksSkeleton conditions={<NetworkConditionsCard />} />;
   const enabled = mocks.filter((m) => m.enabled).length;
 
   return (

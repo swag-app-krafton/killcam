@@ -7,6 +7,7 @@ import { plural } from '../lib/format';
 import { useAsync } from '../lib/hooks';
 import { load, save } from '../lib/storage';
 import { confirmDialog, toast } from '../state/ui';
+import { ActionGroupsSkeleton } from '../kit/skeletons';
 
 const EXAMPLES = ['swagpay://scan', 'upi://pay?pa=chaiwala.ramesh@ybl&pn=RAMESH%20KUMAR&am=45.00&cu=INR'];
 const RECENT_KEY = 'killcam.deeplinks';
@@ -52,7 +53,7 @@ export function ActionsPanel() {
           {errorMessage(actions.error)}
         </EmptyState>
       ) : !actions.data ? (
-        <EmptyState>Loading actions…</EmptyState>
+        <ActionGroupsSkeleton />
       ) : !actions.data.length ? (
         <EmptyState title="No actions registered">
           Register buttons from the app, for example Killcam.registerAction("Expire session", group = "Session") {'{'} … {'}'}, and they appear here.

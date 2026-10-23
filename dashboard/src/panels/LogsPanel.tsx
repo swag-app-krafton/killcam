@@ -16,6 +16,7 @@ import { useSessionView } from '../state/session';
 import { createStore, useStore } from '../state/store';
 import { confirmDialog, toast } from '../state/ui';
 import s from './Logs.module.css';
+import { LogsBodySkeleton } from '../kit/skeletons';
 
 export const LEVELS: LogLevel[] = ['V', 'D', 'I', 'W', 'E', 'A'];
 const LEVEL_NAME: Record<LogLevel, string> = { V: 'Verbose', D: 'Debug', I: 'Info', W: 'Warn', E: 'Error', A: 'Assert' };
@@ -179,7 +180,7 @@ export function LogsPanel() {
       )}
 
       {view.status === 'loading' && !view.logs.length ? (
-        <EmptyState>Loading logs…</EmptyState>
+        <LogsBodySkeleton />
       ) : view.logs.length === 0 ? (
         <EmptyState title="No log lines yet">
           {view.kind === 'live'

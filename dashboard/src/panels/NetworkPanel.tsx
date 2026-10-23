@@ -16,6 +16,7 @@ import { createStore, useStore } from '../state/store';
 import { confirmDialog, toast } from '../state/ui';
 import { NetworkDetail } from './NetworkDetail';
 import s from './Network.module.css';
+import { NetworkBodySkeleton } from '../kit/skeletons';
 
 interface NetFilters {
   q: string;
@@ -181,7 +182,7 @@ export function NetworkPanel() {
       )}
 
       {view.status === 'loading' && !view.network.length ? (
-        <EmptyState>Loading calls…</EmptyState>
+        <NetworkBodySkeleton />
       ) : view.status === 'error' ? (
         <EmptyState title="Could not load this session">{view.error}</EmptyState>
       ) : view.network.length === 0 ? (
