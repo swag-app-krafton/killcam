@@ -1052,7 +1052,7 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
     - it accepts 4–8 digits (`autocomplete=one-time-code`);
     - it parks requests and replays them after a correct PIN;
     - it shows "Wrong PIN, try again." or "Device unreachable.".
-  - **Loading** (🚧): every page has one shimmer skeleton in the page's own layout. It uses the same design-system cards and tables, the real titles and column headers, and bones where the data goes.
+  - **Loading** (✅ `1f06df9`): every page has one shimmer skeleton in the page's own layout. It uses the same design-system cards and tables, the real titles and column headers, and bones where the data goes.
     - It shows while the page's code chunk downloads (the shell's `Suspense` fallback) and again while the page's data loads. The two look the same, so there is one loader, and nothing moves when the data arrives.
     - Toolbars that don't wait for data stay up, and only the list below them shimmers: Network, Logs, and Mocks' network conditions.
     - It appears after 150 ms, so a fast load doesn't flash.
@@ -1086,7 +1086,7 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
     | `killcam.logs.hiddenTags` | hidden log tags |
 
     Storage is per origin, so `localhost:8090`, the Wi-Fi address and Vite's `:5173` each keep their own.
-- **Code:** `dash/state/router.ts`, `dash/shell/routes.ts`, `dash/state/app.ts`, `dash/state/store.ts`, `dash/state/ui.ts`, `dash/api/client.ts`, `dash/lib/back.ts`, `dash/lib/hooks.ts`, `dash/lib/storage.ts`; 🚧 `dash/shell/AppShell.tsx`, `Sidebar.tsx`, `TopBar.tsx`, `PageHeader.tsx`, `SessionPicker.tsx`, `SessionDetails.tsx`, `PinScreen.tsx`, `Embed.tsx`, `actions.ts`; `dash/kit/overlays.tsx`; 🚧 `dash/kit/Skeleton.tsx` (the shimmer, the delay and the busy region), `dash/kit/skeletons.tsx` (one skeleton per page, and `RouteSkeleton`), `dash/kit/skeleton.module.css`.
+- **Code:** `dash/state/router.ts`, `dash/shell/routes.ts`, `dash/state/app.ts`, `dash/state/store.ts`, `dash/state/ui.ts`, `dash/api/client.ts`, `dash/lib/back.ts`, `dash/lib/hooks.ts`, `dash/lib/storage.ts`; 🚧 `dash/shell/AppShell.tsx`, `Sidebar.tsx`, `TopBar.tsx`, `PageHeader.tsx`, `SessionPicker.tsx`, `SessionDetails.tsx`, `PinScreen.tsx`, `Embed.tsx`, `actions.ts`; `dash/kit/overlays.tsx`; ✅ `1f06df9` `dash/kit/Skeleton.tsx` (the shimmer, the delay and the busy region), `dash/kit/skeletons.tsx` (one skeleton per page, and `RouteSkeleton`), `dash/kit/skeleton.module.css`.
 - **API:** the HTTP client sends `X-Killcam: 1` on writes, uses page-relative `api/…` URLs, and turns a network failure into "Device unreachable".
 - **Limits:** up to 4 toasts, removed after 3,800 ms each.
 - **Survives a restart:** the browser storage above.
