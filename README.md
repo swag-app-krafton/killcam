@@ -77,7 +77,7 @@ Screens, flags, MMKV instances, Remote Config and actions are opt-in, as describ
 
 | From | How |
 |---|---|
-| **Laptop over USB** | `adb forward tcp:8090 tcp:8090`, then open <http://localhost:8090> |
+| **Laptop over USB** | `kc open`, or by hand: `adb forward tcp:8090 tcp:8090`, then open <http://localhost:8090> |
 | **The phone itself** | Tap the floating red bubble, shake the device, or tap the notification |
 | **Laptop over Wi-Fi** | In the in-app window, turn on *Share over Wi-Fi*; open the URL shown and enter the 6-digit PIN |
 | **React Native DevTools** | Add the [Rozenite plugin](rozenite-plugin/README.md); Killcam appears as a panel next to Rozenite's own |
@@ -85,6 +85,39 @@ Screens, flags, MMKV instances, Remote Config and actions are opt-in, as describ
 Long-press the bubble to **mark the moment** a bug happened. It's bookmarked on the
 timeline with a screenshot. **Share bug bundle** zips the session (`session.json`,
 `network.har`, screenshots) and opens the Android share sheet, ready for Slack or JIRA.
+
+## Day to day: `kc`
+
+`bin/kc` wraps the long commands for working on Killcam and Swag Pay together. Install it
+once (any directory on your `PATH` works):
+
+```bash
+ln -s ~/Documents/killcam/bin/kc ~/.local/bin/kc
+```
+
+| Command | Does |
+|---|---|
+| `kc up` | Everything for a session:<br>• starts the dummy backend and Metro<br>• maps the ports (phone `3000`/`8081` → Mac, Mac `8090` → phone)<br>• installs Swag Pay if the phone's copy has no Killcam, then launches it<br>• opens the dashboard |
+| `kc up --no-metro` | The same, without Metro |
+| `kc open` | Opens the phone's dashboard. It forwards the port and launches Swag Pay if needed. |
+| `kc install` | Builds and installs Swag Pay's debug build (with Killcam), then launches it |
+| `kc status` | What's connected, running and mapped: phone, app, Killcam, backend, Metro, ports |
+| `kc logs` | Follows Killcam and `[SwagApi]` lines from the app |
+| `kc logs backend` | Follows the dummy backend (also `metro` and `demo`) |
+| `kc backend` / `kc backend stop` | Starts or stops Swag Pay's dummy backend on `:3000` |
+| `kc metro` / `kc metro stop` | Starts or stops Metro with Rozenite on `:8081` |
+| `kc demo` | Killcam on the laptop with fake data, no phone needed, on `:8095` |
+| `kc test` | Every test in both repos: server, no-op API parity, dashboard types, dummy backend, Swag Pay unit tests |
+| `kc stop` | Stops what `kc` started and removes the port mappings |
+
+- **Locations:** `kc` expects the repos in `~/Documents/killcam` and
+  `~/Documents/swag-pay-killcam` (falling back to `~/Documents/swag-pay`). Point it elsewhere
+  with `KILLCAM_DIR` and `SWAGPAY_DIR`.
+- **Files:** processes that `kc` starts run in the background, with logs and pids in
+  `~/.local/state/kc/`.
+- **Demo port:** the demo uses port 8095 so it never hides the phone's dashboard on 8090.
+  `kc up` and `kc open` refuse to map 8090 while something else holds it, and name what
+  is holding it.
 
 ## Instrumenting the app
 
@@ -241,6 +274,7 @@ Killcam holds payment traffic, so it defaults to closed:
 ## Repository
 
 ```
+bin/kc            Short commands for day-to-day work (see "Day to day: kc")
 killcam-core/     Pure JVM: store, mocks, flags, sessions, HTTP server (Ktor CIO), API
 killcam/          Android library: collectors, interceptor, bubble, in-app window
 killcam-no-op/    Release stand-in with the same public API
@@ -251,6 +285,7 @@ docs/API.md       HTTP API; dashboard/src/api/types.ts is the wire contract
 ```
 
 ```bash
+kc help                               # the short commands above; kc test runs everything below
 ./gradlew :killcam-core:test          # server, security, sessions, mocks, flags
 ./gradlew :killcam-core:demo          # real server + simulated Swag Pay session on :8090
 ./scripts/check-noop-api.sh           # killcam and killcam-no-op expose the same API

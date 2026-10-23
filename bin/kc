@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+# kc: short commands for Killcam + Swag Pay development.
+#
+#   kc up        everything for a session: backend, Metro, port mappings, app, dashboard
+#   kc help      the full list
+#
+# Paths can be overridden: KILLCAM_DIR, SWAGPAY_DIR (defaults below).
+set -uo pipefail
+
+KILLCAM_DIR="${KILLCAM_DIR:-$HOME/Documents/killcam}"
+if [[ -z "${SWAGPAY_DIR:-}" ]]; then
+  # The Killcam integration lives on the killcam-integration worktree until it merges.
+  if [[ -d "$HOME/Documents/swag-pay-killcam" ]]; then SWAGPAY_DIR="$HOME/Documents/swag-pay-killcam"; else SWAGPAY_DIR="$HOME/Documents/swag-pay"; fi
+fi
+MOBILE="$SWAGPAY_DIR/apps/mobile"
+BACKEND="$SWAGPAY_DIR/apps/dummy-backend"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/kc"
+PKG="com.swag.pay"
+ACTIVITY="$PKG/.MainActivity"
+PORT_KILLCAM=8090     # Killcam on the phone, forwarded to the same port on the Mac
+PORT_BACKEND=3000     # dummy backend on the Mac, reversed so the phone's localhost reaches it
+PORT_METRO=8081
+PORT_DEMO=8095        # desktop demo server; kept off 8090 so it never hides the phone's dashboard
+
+mkdir -p "$STATE"
+
+# ------------------------------------------------------------------ output ---
+if [[ -t 1 ]]; then B=$'\e[1m'; D=$'\e[2m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; N=$'\e[0m'; else B= D= G= Y= R= N=; fi
+ok()   { printf "  ${G}✓${N} %s\n" "$*"; }
+warn() { printf "  ${Y}!${N} %s\n" "$*"; }
+fail() { printf "  ${R}✕${N} %s\n" "$*"; }
+step() { printf "${B}%s${N}\n" "$*"; }
+die()  { fail "$*"; exit 1; }
+
+# ----------------------------------------------------------------- helpers ---
+device()        { adb get-state >/dev/null 2>&1; }
+need_device()   { device || die "No Android device. Plug the phone in (USB debugging on), then retry."; }
+listening()     { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
+listener_name() { lsof -nP -iTCP:"$1" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $1" (pid "$2")"}'; }
+app_pid()       { adb shell pidof "$PKG" 2>/dev/null | tr -d '\r'; }
+has_killcam()   { adb shell dumpsys package "$PKG" 2>/dev/null | grep -q KillcamActivity; }
+killcam_up()    { curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT_KILLCAM/api/status"; }
+backend_up()    { curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT_BACKEND/health"; }
+
+# Starts a long-running command in the background, remembering its pid and log.
+# Only the command itself is backgrounded, fully detached from this terminal,
+# so kc returns at once and the pid recorded is the command's own.
+start_bg() { # name dir command...
+  local name=$1 dir=$2; shift 2
+  (
+    cd "$dir" || exit 1
+    nohup "$@" >"$STATE/$name.log" 2>&1 </dev/null &
+    echo $! >"$STATE/$name.pid"
+  )
+}
+stop_bg() { # name
+  local pidfile="$STATE/$1.pid"
+  [[ -f "$pidfile" ]] || return 1
+  local pid; pid=$(cat "$pidfile")
+  # Metro and npm spawn children; take the whole group down.
+  pkill -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null
+  rm -f "$pidfile"
+}
+
+map_ports() {
+  adb reverse "tcp:$PORT_BACKEND" "tcp:$PORT_BACKEND" >/dev/null && ok "phone localhost:$PORT_BACKEND → Mac (dummy backend)"
+  adb reverse "tcp:$PORT_METRO" "tcp:$PORT_METRO" >/dev/null && ok "phone localhost:$PORT_METRO → Mac (Metro)"
+  if listening "$PORT_KILLCAM" && ! lsof -nP -iTCP:"$PORT_KILLCAM" -sTCP:LISTEN | grep -q adb; then
+    fail "Mac port $PORT_KILLCAM is taken by $(listener_name "$PORT_KILLCAM"): it would hide the phone's dashboard. Stop it, then run: kc open"
+    return 1
+  fi
+  adb forward "tcp:$PORT_KILLCAM" "tcp:$PORT_KILLCAM" >/dev/null && ok "Mac localhost:$PORT_KILLCAM → phone (Killcam)"
+}
+
+wait_for() { # seconds command...
+  local seconds=$1 i; shift
+  for ((i = 0; i < seconds * 2; i++)); do "$@" && return 0; sleep 0.5; done
+  return 1
+}
+
+# ---------------------------------------------------------------- commands ---
+cmd_up() {
+  local metro=1
+  [[ "${1:-}" == "--no-metro" ]] && metro=0
+  need_device
+  step "Backend"
+  cmd_backend start
+  if ((metro)); then step "Metro"; cmd_metro start; fi
+  step "Ports"
+  map_ports || true
+  step "App"
+  if ! has_killcam; then
+    warn "The installed Swag Pay has no Killcam. Installing the debug build (takes a minute)…"
+    cmd_install || return 1
+  else
+    adb shell am start -n "$ACTIVITY" >/dev/null && ok "Swag Pay launched"
+  fi
+  if wait_for 20 killcam_up; then
+    ok "Killcam is up"
+    open "http://localhost:$PORT_KILLCAM" 2>/dev/null
+    printf "\n  Dashboard  ${B}http://localhost:%s${N}\n  Stop all   ${B}kc stop${N}\n" "$PORT_KILLCAM"
+  else
+    warn "Killcam didn't answer on :$PORT_KILLCAM yet. Check: kc status"
+  fi
+}
+
+cmd_open() {
+  need_device
+  map_ports || return 1
+  if ! killcam_up; then
+    [[ -n "$(app_pid)" ]] || { adb shell am start -n "$ACTIVITY" >/dev/null; ok "Swag Pay launched"; }
+    wait_for 15 killcam_up || die "Killcam isn't answering. Is this the Killcam build? Run: kc install"
+  fi
+  ok "http://localhost:$PORT_KILLCAM"
+  open "http://localhost:$PORT_KILLCAM"
+}
+
+cmd_install() {
+  need_device
+  step "Building and installing Swag Pay (debug, with Killcam) from $MOBILE"
+  (cd "$MOBILE" && ./gradlew :composeApp:installDebug --console=plain -q) || die "Build failed. Run it yourself for the full output: cd $MOBILE && ./gradlew :composeApp:installDebug"
+  ok "Installed"
+  adb shell am start -n "$ACTIVITY" >/dev/null && ok "Swag Pay launched"
+}
+
+cmd_backend() {
+  case "${1:-start}" in
+    start)
+      if backend_up; then ok "Dummy backend already running on :$PORT_BACKEND"; return; fi
+      listening "$PORT_BACKEND" && die "Port $PORT_BACKEND is taken by $(listener_name "$PORT_BACKEND")"
+      start_bg backend "$BACKEND" node src/server.mjs
+      wait_for 10 backend_up && ok "Dummy backend on http://localhost:$PORT_BACKEND  ${D}(log: kc logs backend)${N}" || die "Backend didn't start. Log: $STATE/backend.log"
+      ;;
+    stop) stop_bg backend && ok "Dummy backend stopped" || warn "Dummy backend wasn't started by kc" ;;
+    *) die "kc backend [start|stop]" ;;
+  esac
+}
+
+cmd_metro() {
+  case "${1:-start}" in
+    start)
+      if listening "$PORT_METRO"; then ok "Metro already running on :$PORT_METRO"; return; fi
+      [[ -d "$MOBILE/react-native/node_modules" ]] || die "Run npm ci in $MOBILE/react-native first"
+      start_bg metro "$MOBILE/react-native" env WITH_ROZENITE=true npx react-native start --port "$PORT_METRO"
+      wait_for 30 listening "$PORT_METRO" && ok "Metro (with Rozenite) on :$PORT_METRO  ${D}(log: kc logs metro)${N}" || warn "Metro is still starting. Log: $STATE/metro.log"
+      ;;
+    stop) stop_bg metro && ok "Metro stopped" || warn "Metro wasn't started by kc" ;;
+    *) die "kc metro [start|stop]" ;;
+  esac
+}
+
+cmd_demo() {
+  if listening "$PORT_DEMO"; then open "http://localhost:$PORT_DEMO"; ok "Demo already running on :$PORT_DEMO"; return; fi
+  step "Starting the desktop demo (fake Swag Pay session, no phone needed)"
+  start_bg demo "$KILLCAM_DIR" env KILLCAM_PORT="$PORT_DEMO" ./gradlew :killcam-core:demo --console=plain -q
+  wait_for 90 listening "$PORT_DEMO" || die "Demo didn't start. Log: $STATE/demo.log"
+  ok "http://localhost:$PORT_DEMO  ${D}(stop: kc stop)${N}"
+  open "http://localhost:$PORT_DEMO"
+}
+
+cmd_status() {
+  step "Phone"
+  if device; then
+    ok "$(adb shell getprop ro.product.manufacturer | tr -d '\r') $(adb shell getprop ro.product.model | tr -d '\r') · Android $(adb shell getprop ro.build.version.release | tr -d '\r')"
+    if has_killcam; then ok "Swag Pay installed, with Killcam"; else warn "Swag Pay has no Killcam (kc install)"; fi
+    [[ -n "$(app_pid)" ]] && ok "Swag Pay running" || warn "Swag Pay not running"
+  else
+    fail "No device connected"
+  fi
+  step "Mac"
+  killcam_up && ok "Killcam dashboard: http://localhost:$PORT_KILLCAM" || warn "Killcam not reachable on :$PORT_KILLCAM (kc open)"
+  backend_up && ok "Dummy backend on :$PORT_BACKEND" || warn "Dummy backend not running (kc backend)"
+  listening "$PORT_METRO" && ok "Metro on :$PORT_METRO" || warn "Metro not running (kc metro)"
+  listening "$PORT_DEMO" && ok "Desktop demo on :$PORT_DEMO"
+  if device; then
+    step "Port mappings"
+    adb reverse --list 2>/dev/null | sed 's/^/  /'
+    adb forward --list 2>/dev/null | sed 's/^/  /'
+  fi
+  return 0
+}
+
+cmd_logs() {
+  case "${1:-app}" in
+    app)
+      need_device
+      local pid; pid=$(app_pid)
+      [[ -n "$pid" ]] || die "Swag Pay isn't running"
+      printf "${D}Killcam and [SwagApi] lines from Swag Pay (Ctrl-C to stop)${N}\n"
+      adb logcat --pid="$pid" -v time | grep --line-buffered -E "Killcam|SwagApi|FATAL|AndroidRuntime"
+      ;;
+    backend|metro|demo) tail -n 50 -f "$STATE/$1.log" ;;
+    *) die "kc logs [app|backend|metro|demo]" ;;
+  esac
+}
+
+cmd_stop() {
+  stop_bg backend && ok "Dummy backend stopped"
+  stop_bg metro && ok "Metro stopped"
+  stop_bg demo && ok "Demo stopped"
+  if device; then
+    adb reverse --remove "tcp:$PORT_BACKEND" 2>/dev/null
+    adb reverse --remove "tcp:$PORT_METRO" 2>/dev/null
+    adb forward --remove "tcp:$PORT_KILLCAM" 2>/dev/null
+    ok "Port mappings removed"
+  fi
+  return 0
+}
+
+cmd_test() {
+  local failed=0
+  run() { # label dir command...
+    local label=$1 dir=$2; shift 2
+    if (cd "$dir" && "$@" >"$STATE/test.log" 2>&1); then ok "$label"; else fail "$label  ${D}(output: $STATE/test.log)${N}"; failed=1; fi
+  }
+  step "Killcam"
+  run "server tests"            "$KILLCAM_DIR" ./gradlew :killcam-core:test --console=plain -q
+  run "no-op API matches"       "$KILLCAM_DIR" ./scripts/check-noop-api.sh
+  run "dashboard type-checks"   "$KILLCAM_DIR/dashboard" npx tsc --noEmit -p tsconfig.json
+  step "Swag Pay"
+  run "dummy backend tests"     "$BACKEND" node --test test/
+  run "app unit tests"          "$MOBILE" ./gradlew :composeApp:testDebugUnitTest --console=plain -q
+  return $failed
+}
+
+cmd_help() {
+  cat <<EOF
+${B}kc${N}: Killcam + Swag Pay, the short way
+
+  ${B}kc up${N}             Start everything: backend, Metro, port mappings, app, dashboard
+  ${B}kc up --no-metro${N}  Same, without Metro
+  ${B}kc open${N}           Open the phone's Killcam dashboard in the browser
+  ${B}kc install${N}        Build and install Swag Pay (debug, with Killcam), then launch it
+  ${B}kc status${N}         What's connected, running and mapped
+  ${B}kc logs${N}           Follow Killcam and [SwagApi] lines from the app
+  ${B}kc logs backend${N}   Follow the dummy backend (also: metro, demo)
+  ${B}kc backend${N}        Start the dummy backend      ${D}(kc backend stop)${N}
+  ${B}kc metro${N}          Start Metro with Rozenite     ${D}(kc metro stop)${N}
+  ${B}kc demo${N}           Killcam on the laptop with fake data, no phone needed
+  ${B}kc test${N}           Every test in both repos
+  ${B}kc stop${N}           Stop what kc started and remove the port mappings
+
+${D}Swag Pay: $SWAGPAY_DIR   Killcam: $KILLCAM_DIR
+Override with SWAGPAY_DIR / KILLCAM_DIR.${N}
+EOF
+}
+
+case "${1:-help}" in
+  up)      shift; cmd_up "$@" ;;
+  open)    cmd_open ;;
+  install) cmd_install ;;
+  status)  cmd_status ;;
+  logs)    shift; cmd_logs "$@" ;;
+  backend) shift; cmd_backend "$@" ;;
+  metro)   shift; cmd_metro "$@" ;;
+  demo)    cmd_demo ;;
+  test)    cmd_test ;;
+  stop)    cmd_stop ;;
+  help|-h|--help) cmd_help ;;
+  *) fail "Unknown command: $1"; echo; cmd_help; exit 1 ;;
+esac
