@@ -22,6 +22,7 @@ import com.krafton.killcam.core.model.NetworkProfile
 import com.krafton.killcam.core.model.LogKind
 import com.krafton.killcam.core.model.LogLevel
 import com.krafton.killcam.core.model.TimelineType
+import com.krafton.killcam.core.net.SdkCalls
 import com.krafton.killcam.core.platform.ActionRegistry
 import com.krafton.killcam.internal.KillcamRuntime
 import com.krafton.killcam.internal.KtorEngineCheck
@@ -358,6 +359,27 @@ public object Killcam {
                 offline = offline,
             ),
         )
+    }
+
+    /**
+     * A call made outside OkHttp/Ktor (e.g. a vendor SDK on Volley), listed under Network with its params and answer:
+     * method `SDK`, URL `sdk://<source>/<name>`, the params as a JSON request body, [response] as the response body and
+     * [outcome] as the status text. Call it once the call has finished; it ended now and took [durationMs]. Mocks,
+     * simulated conditions and repeat never apply to it.
+     */
+    @JvmStatic
+    @JvmOverloads
+    public fun recordCall(
+        source: String,
+        name: String,
+        request: Map<String, String?>,
+        response: String?,
+        outcome: String,
+        durationMs: Long,
+        failed: Boolean = false,
+    ) {
+        val runtime = runtime ?: return
+        SdkCalls.record(runtime.core.store, source, name, request, response, outcome, durationMs, failed, runtime.config.maxBodyBytes)
     }
 
     @JvmStatic

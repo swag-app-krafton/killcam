@@ -234,6 +234,45 @@ public class KillcamStore(
         }
     }
 
+    /**
+     * A finished call that went through no interceptor (a vendor SDK, see [com.krafton.killcam.core.net.SdkCalls]):
+     * it started [durationMs] ago and ends now. Returns its id, or null while paused. Bodies should already be capped
+     * to [StoreLimits.maxBodyBytes].
+     */
+    public fun recordCall(
+        method: String,
+        url: String,
+        source: String,
+        requestBody: HttpBody?,
+        status: Int?,
+        message: String?,
+        responseHeaders: List<Header>,
+        responseBody: HttpBody?,
+        error: String?,
+        durationMs: Long,
+    ): String? {
+        if (paused) return null
+        val (scheme, host, path) = splitUrl(url)
+        val duration = durationMs.coerceAtLeast(0)
+        val call = NetworkCall(
+            id = Ids.next(), seq = nextSeq(), startMs = now() - duration, durationMs = duration,
+            method = method.uppercase(), url = url, scheme = scheme, host = host, path = path,
+            status = status, state = if (error != null) CallState.Failed else CallState.Complete, error = error,
+            requestSize = requestBody?.size ?: 0, responseSize = responseBody?.size ?: 0,
+            contentType = responseBody?.contentType?.substringBefore(';')?.trim(), mockRuleId = null, source = source,
+            screen = currentScreen, protocol = null, responseMessage = message,
+            requestHeaders = emptyList(), requestBody = requestBody, responseHeaders = responseHeaders, responseBody = responseBody,
+        )
+        val summary = synchronized(lock) {
+            network[call.id] = call
+            bodyBytes += weight(requestBody) + weight(responseBody)
+            enforceNetworkLimits()
+            call.summary()
+        }
+        emitNetwork(summary)
+        return call.id
+    }
+
     private fun update(id: String, transform: (NetworkCall) -> NetworkCall) {
         val summary = synchronized(lock) {
             val existing = network[id] ?: return

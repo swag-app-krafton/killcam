@@ -148,6 +148,17 @@ public object Killcam {
         offline: Boolean = false,
     ): Unit = Unit
 
+    @JvmStatic @JvmOverloads @Suppress("UNUSED_PARAMETER")
+    public fun recordCall(
+        source: String,
+        name: String,
+        request: Map<String, String?>,
+        response: String?,
+        outcome: String,
+        durationMs: Long,
+        failed: Boolean = false,
+    ): Unit = Unit
+
     @JvmStatic
     public fun clearNetworkConditions(): Unit = Unit
 

@@ -70,6 +70,16 @@ says so on the timeline (FEATURES, section 5).
 Add it as an application interceptor (`addInterceptor`), so mocks short-circuit before
 any I/O and bodies arrive decompressed.
 
+A call that goes through neither client, such as a vendor SDK on Volley, can be listed under Network by hand once it
+has finished (0.1.5):
+
+```kotlin
+Killcam.recordCall("upi-sdk", "doRegistration", params, rawAnswer, "Responded(status=S)", durationMs, failed = false)
+```
+
+It shows as method `SDK`, URL `sdk://upi-sdk/doRegistration`, the params as a JSON request body and the answer as the
+response body. Mocks, network conditions and repeat do not apply to it (FEATURES, section 5).
+
 **4. (Debug) allow the in-app window to reach the local server.** If your debug network
 security config blocks cleartext, permit `127.0.0.1` (the sample app has a debug-only
 config under `sample/src/debug/res/xml`).
