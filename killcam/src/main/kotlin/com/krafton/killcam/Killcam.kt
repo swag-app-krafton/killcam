@@ -24,6 +24,7 @@ import com.krafton.killcam.core.model.LogLevel
 import com.krafton.killcam.core.model.TimelineType
 import com.krafton.killcam.core.platform.ActionRegistry
 import com.krafton.killcam.internal.KillcamRuntime
+import com.krafton.killcam.internal.KtorEngineCheck
 import com.krafton.killcam.internal.MmkvRegistration
 import com.krafton.killcam.internal.toJsonObject
 import com.krafton.killcam.internal.ui.KillcamActivity
@@ -74,6 +75,7 @@ public object Killcam {
             runtime = created
             created.start()
             markInstalled()
+            if (KtorEngineCheck.listedFirst() == false) created.core.store.timeline(TimelineType.Custom, KtorEngineCheck.MISSED)
             return true
         }
     }

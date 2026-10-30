@@ -38,12 +38,16 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.core)
     compileOnly(libs.okhttp)
+    compileOnly(libs.ktor.client.core) // the app's own Ktor (PT-D2), only to register the engine below
+    compileOnly(libs.ktor.client.okhttp)
     compileOnly(libs.mmkv)
     compileOnly(libs.firebase.config)
 
     testImplementation(kotlin("test"))
     testImplementation(libs.junit)
     testImplementation(libs.okhttp)
+    testImplementation(libs.ktor.client.core)
+    testImplementation(libs.ktor.client.okhttp)
 }
 
 publishing {

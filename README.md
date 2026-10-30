@@ -60,8 +60,12 @@ Killcam.install(this)   // returns false and does nothing in non-debuggable buil
 
 ```kotlin
 OkHttpClient.Builder().addInterceptor(KillcamInterceptor())            // OkHttp
-HttpClient(OkHttp) { engine { addInterceptor(KillcamInterceptor()) } } // Ktor
+HttpClient(OkHttp) { engine { addInterceptor(KillcamInterceptor()) } } // Ktor, engine named
 ```
+
+A Ktor client built with `HttpClient()` and no engine named needs no line: the artifact registers its own OkHttp engine
+with the interceptor already added. Ktor takes the first engine on the classpath, so if another one is listed first Killcam
+says so on the timeline (FEATURES, section 5).
 
 Add it as an application interceptor (`addInterceptor`), so mocks short-circuit before
 any I/O and bodies arrive decompressed.

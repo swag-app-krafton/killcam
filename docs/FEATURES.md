@@ -336,7 +336,8 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
   - **Redaction.** Header values named in `redactHeaders` become `██ redacted` before they are stored, so exports carry the mask too.
   - **Errors.** An `IOException` or `RuntimeException` marks the call failed ("SimpleName: message") and is rethrown.
   - **Other clients:**
-    - Ktor is captured only through its OkHttp engine: `HttpClient(OkHttp) { engine { addInterceptor(KillcamInterceptor()) } }`.
+    - Ktor, ✅ 0.1.4: a client built with no engine named, `HttpClient()`, is captured with no code in the app. The artifact lists `KillcamEngineContainer` in `META-INF/services/io.ktor.client.HttpClientEngineContainer`; it gives OkHttp with `KillcamInterceptor("ktor")` added first, then whatever the app's `engine { }` adds. A client that names its engine, `HttpClient(OkHttp) { … }`, is not captured: add `engine { addInterceptor(KillcamInterceptor()) }` to it.
+    - Ktor takes the first engine `ServiceLoader` lists, and the order comes from the app's classpath, which Killcam does not control. Swag Pay's APK lists Killcam's first; Killcam's own JVM test classpath lists OkHttp's first. `Killcam.install` therefore checks the order (`KtorEngineCheck`) and writes a timeline line when another engine wins, so a missing capture is not silent.
     - React Native `fetch` needs `OkHttpClientProvider.setOkHttpClientFactory { … addInterceptor(KillcamInterceptor("react-native")) }`.
     - WebSocket frames are not captured.
   - Add it as an **application** interceptor (`addInterceptor`), so mocks short-circuit before any I/O and bodies arrive decompressed. As an application interceptor it sees request headers before OkHttp adds Host, User-Agent, Accept-Encoding and cookies (inferred).
@@ -350,9 +351,9 @@ There is also no switch to disable Wi-Fi sharing, to start paused, or to redact 
   - `path` includes the query string.
 - **Survives a restart:** only inside saved sessions.
 - **Security:** `Authorization`, `Cookie` and `Set-Cookie` are stored in clear unless redacted. Bodies and query strings are never redacted (T-002).
-- **Checked on:** demo server, mock server and unit tests. **Never on a device:** Swag Pay makes no HTTP calls (F-005), and the sample app was never installed (T-003).
+- **Checked on:** demo server, mock server and unit tests. Ktor's engine registration (0.1.4) also on device Vivo V2514, Android 16, 2026-10-30: Swag Pay's native calls (`POST /v1/screens`, `GET /homepage`) appeared in `GET /api/network` with `source: "ktor"`, with no code in the app. The sample app was never installed (T-003).
 - **Tests:** `ServerTest.networkLifecycleAndCurl` (store and endpoints, not the interceptor); `CoreUnitTest.decodesGzipEvenWhenTruncated`, `binaryBodiesAreBase64`, `countCapDropsOldestCalls`, `bodyBudgetEvictsOldestBodiesFirst`. **The interceptor itself is untested.**
-- **Open items:** F-005, T-002, T-003, B-016, T-005.
+- **Open items:** F-005, T-001, T-002, T-003, B-016, T-005.
 
 ## 6. cURL and HAR export
 
